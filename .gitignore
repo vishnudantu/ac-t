@@ -1,0 +1,37 @@
+# Dependencies and generated files
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+next-env.d.ts
+*.tsbuildinfo
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+ssl/
+*.pem
+*.key
+
+# Generated deployment configuration
+docker-compose.override.yml
+
+# Local tools and logs
+.claude/
+*.log
+
+# Databases and backups
+*.sql
+*.db
+*.sqlite
+backups/
+
+# Root-level Excel manifests; review before sharing
+/*.xlsx
+
+# OS files
+.DS_Store
+Thumbs.db
