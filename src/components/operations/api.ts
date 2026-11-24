@@ -17,6 +17,7 @@ interface Query {
   offset?: number
   status?: string
   categoryId?: string
+  matchId?: string
 }
 
 function makeUrl(path: string, query: Query = {}): string {

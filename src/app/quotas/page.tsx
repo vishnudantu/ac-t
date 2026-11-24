@@ -1,14 +1,19 @@
 "use client"
 
 import { useState } from "react"
-import { CheckCircle2, Layers3, Shield } from "lucide-react"
+import { CheckCircle2, Layers3, Pencil, Shield } from "lucide-react"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getQuotas } from "@/components/operations/api"
 import { DataState, EmptyState, MetricSkeleton, TableSkeleton } from "@/components/operations/data-state"
-import { Pagination, SearchInput } from "@/components/operations/list-controls"
+import { FilterSelect, Pagination, SearchInput } from "@/components/operations/list-controls"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { useSession } from "@/hooks/use-session"
 import { MetricCard } from "@/components/operations/metric-card"
 import { PageHeader } from "@/components/operations/page-header"
 import { useOperationData } from "@/components/operations/use-operation-data"
@@ -17,7 +22,7 @@ import { formatNumber } from "@/lib/utils"
 
 const PAGE_SIZE = 20
 
-function QuotaPoolCard({ quota }: { quota: Quota }) {
+function QuotaPoolCard({ quota, onEdit }: { quota: Quota; onEdit?: (quota: Quota) => void }) {
   const remaining = Math.max(0, quota.totalAllocation - quota.consumedQuantity)
 
   return (
@@ -27,9 +32,12 @@ function QuotaPoolCard({ quota }: { quota: Quota }) {
           <CardTitle className="text-base">{quota.displayName}</CardTitle>
           <CardDescription className="mt-1">{quota.match.title} · {quota.owner ? `Owner: ${quota.owner.fullName}` : "No owner assigned"}</CardDescription>
         </div>
-        <Badge className={quota.isActive ? "status-approved" : "status-closed"}>
-          {quota.isActive ? "Active" : "Inactive"}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-1">
+          <Badge className={quota.isActive ? "status-approved" : "status-closed"}>
+            {quota.isActive ? "Active" : "Inactive"}
+          </Badge>
+          {onEdit && <Button variant="ghost" size="icon" aria-label={`Edit quota ${quota.displayName}`} onClick={() => onEdit(quota)}><Pencil className="h-4 w-4" /></Button>}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
         <dl className="grid grid-cols-3 gap-3 border-y py-3">
@@ -76,10 +84,53 @@ function QuotaPoolCard({ quota }: { quota: Quota }) {
 export default function QuotasPage() {
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
+  const { user } = useSession()
+  const [matchId, setMatchId] = useState("all")
+  const [matches, setMatches] = useState<{ id: string; title: string }[]>([])
+  const [editing, setEditing] = useState<Quota | null>(null)
+  const [editForm, setEditForm] = useState({ displayName: "", description: "", isActive: true })
+  const [editError, setEditError] = useState("")
+  const [editSaving, setEditSaving] = useState(false)
+  const canWrite = Boolean(user?.permissions.includes("quotas:write"))
   const { data, loading, error, retry } = useOperationData(
-    (signal) => getQuotas(signal, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
-    [page],
+    (signal) => getQuotas(signal, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, matchId }),
+    [page, matchId],
   )
+
+  useState(() => {
+    fetch("/api/matches?limit=100", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body: { matches?: { id: string; title: string }[] }) => setMatches(body.matches || []))
+      .catch(() => setMatches([]))
+  })
+
+  function openEdit(quota: Quota) {
+    setEditing(quota)
+    setEditForm({ displayName: quota.displayName, description: "", isActive: quota.isActive })
+    setEditError("")
+  }
+
+  async function saveQuota(event: React.FormEvent) {
+    event.preventDefault()
+    if (!editing) return
+    setEditSaving(true)
+    setEditError("")
+    try {
+      const response = await fetch(`/api/quotas/${encodeURIComponent(editing.id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: editForm.displayName, isActive: editForm.isActive }),
+      })
+      const body = await response.json() as { error?: string; details?: { message: string }[] }
+      if (!response.ok) throw new Error(body.details?.[0]?.message || body.error || "Unable to update quota")
+      setEditing(null)
+      retry()
+    } catch (cause: unknown) { setEditError(cause instanceof Error ? cause.message : "Unable to update quota") } finally { setEditSaving(false) }
+  }
+
+  function changeMatch(value: string) {
+    setMatchId(value)
+    setPage(1)
+  }
 
   const quotas = data?.quotas ?? []
   const query = search.trim().toLowerCase()
@@ -117,7 +168,10 @@ export default function QuotasPage() {
         )}
         <Card className="shadow-none">
           <CardContent className="p-4">
-            <SearchInput value={search} onChange={setSearch} label="Filter quotas on this page" placeholder="Filter this page by quota, match, owner, or category…" />
+            <div className="grid gap-3 sm:grid-cols-[minmax(220px,1fr)_220px]">
+              <SearchInput value={search} onChange={setSearch} label="Filter quotas on this page" placeholder="Filter this page by quota, match, owner, or category…" />
+              <FilterSelect value={matchId} onChange={changeMatch} label="Match" options={[{ value: "all", label: "All matches" }, ...matches.map((match) => ({ value: match.id, label: match.title }))]} />
+            </div>
           </CardContent>
         </Card>
         <section aria-labelledby="quota-list-title">
@@ -137,7 +191,7 @@ export default function QuotasPage() {
               </Card>
             ) : (
               <div className="grid gap-4 xl:grid-cols-2">
-                {filteredQuotas.map((quota) => <QuotaPoolCard key={quota.id} quota={quota} />)}
+                {filteredQuotas.map((quota) => <QuotaPoolCard key={quota.id} quota={quota} onEdit={canWrite ? openEdit : undefined} />)}
               </div>
             )}
           </DataState>
@@ -148,6 +202,17 @@ export default function QuotasPage() {
           )}
         </section>
       </div>
+      <Dialog open={Boolean(editing)} onOpenChange={(open) => { if (!open && !editSaving) setEditing(null) }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit quota pool</DialogTitle><DialogDescription>Update “{editing?.displayName}” for {editing?.match.title}.</DialogDescription></DialogHeader>
+          <form onSubmit={saveQuota} className="space-y-4">
+            {editError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{editError}</p>}
+            <div className="space-y-2"><Label htmlFor="quota-name">Display name</Label><Input id="quota-name" required minLength={2} maxLength={500} value={editForm.displayName} onChange={(event) => setEditForm({ ...editForm, displayName: event.target.value })} disabled={editSaving} /></div>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editForm.isActive} onChange={(event) => setEditForm({ ...editForm, isActive: event.target.checked })} disabled={editSaving} />Active (available for new requests and allocations)</label>
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={editSaving}>Cancel</Button><Button type="submit" disabled={editSaving}>{editSaving ? "Saving…" : "Save changes"}</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   )
 }

@@ -1,12 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { CalendarDays, MapPin, Trophy, Plus, Pencil, Trash2 } from "lucide-react"
+import { CalendarDays, MapPin, Trophy, Plus, Pencil, Trash2, Tags } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSession } from "@/hooks/use-session"
 import { MatchFormDialog } from "@/components/matches/match-form-dialog"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { postLifecycle } from "@/components/lifecycle/client"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import type { MatchOption } from "@/components/lifecycle/types"
 
 interface Venue { id: string; name: string; city: string }
@@ -52,8 +54,13 @@ export default function MatchesPage() {
   const [deleting, setDeleting] = useState<MatchRecord | null>(null)
   const [venues, setVenues] = useState<Venue[]>([])
   const [actionError, setActionError] = useState("")
+  const [categoryMatch, setCategoryMatch] = useState<MatchRecord | null>(null)
+  const [categoryList, setCategoryList] = useState<{ id: string; name: string; displayName: string; sortOrder: number; pricingTier: number; _count?: { inventoryPools: number; requestItems: number } }[]>([])
+  const [categoryForm, setCategoryForm] = useState({ displayName: "", pricingTier: "0", sortOrder: "0", colorCode: "#1e3a8a" })
+  const [categoryError, setCategoryError] = useState("")
+  const [categorySaving, setCategorySaving] = useState(false)
   const canWrite = Boolean(user?.permissions.includes("matches:write"))
-  const canDelete = Boolean(user?.permissions.includes("matches:delete"))
+  const canDelete = Boolean(user?.roles?.includes("SUPER_ADMIN"))
   const { data, loading, error, retry } = useOperationData(
     (signal) => getMatches(signal, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, status }),
     [page, status],
@@ -68,6 +75,49 @@ export default function MatchesPage() {
     if (!response.ok) { setActionError(body.error || "Unable to load venues"); return }
     setVenues(body.venues ?? [])
     setFormOpen(true)
+  }
+
+  async function openCategories(match: MatchRecord) {
+    setCategoryMatch(match)
+    setCategoryError("")
+    setCategoryForm({ displayName: "", pricingTier: "0", sortOrder: "0", colorCode: "#1e3a8a" })
+    await loadCategories(match.id)
+  }
+
+  async function loadCategories(matchId: string) {
+    try {
+      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/categories`, { cache: "no-store" })
+      const body = await response.json() as { categories?: typeof categoryList; error?: string }
+      if (!response.ok) throw new Error(body.error || "Unable to load ticket categories")
+      setCategoryList(body.categories || [])
+    } catch (cause: unknown) {
+      setCategoryError(cause instanceof Error ? cause.message : "Unable to load ticket categories")
+    }
+  }
+
+  async function addCategory(event: React.FormEvent) {
+    event.preventDefault()
+    if (!categoryMatch) return
+    setCategorySaving(true)
+    setCategoryError("")
+    try {
+      const response = await fetch(`/api/matches/${encodeURIComponent(categoryMatch.id)}/categories`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: categoryForm.displayName, displayName: categoryForm.displayName,
+          pricingTier: Number(categoryForm.pricingTier), sortOrder: Number(categoryForm.sortOrder),
+          colorCode: categoryForm.colorCode,
+        }),
+      })
+      const body = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(body.error || "Unable to add ticket category")
+      setCategoryForm({ displayName: "", pricingTier: "0", sortOrder: String(categoryList.length + 1), colorCode: "#1e3a8a" })
+      await loadCategories(categoryMatch.id)
+    } catch (cause: unknown) {
+      setCategoryError(cause instanceof Error ? cause.message : "Unable to add ticket category")
+    } finally {
+      setCategorySaving(false)
+    }
   }
 
   async function confirmDelete() {
@@ -188,6 +238,7 @@ export default function MatchesPage() {
                         <TableCell className="text-right tabular-nums">{formatNumber(match._count.inventoryPools)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatNumber(match.totalInventory)}</TableCell>
                         {(canWrite || canDelete) && <TableCell className="whitespace-nowrap text-right">
+                          <Button variant="ghost" size="icon" onClick={() => { void openCategories(match) }} aria-label={`Ticket categories for ${match.title}`}><Tags className="h-4 w-4" /></Button>
                           {canWrite && <Button variant="ghost" size="icon" onClick={() => { void openForm(match) }} aria-label={`Edit ${match.title}`}><Pencil className="h-4 w-4" /></Button>}
                           {canDelete && <Button variant="ghost" size="icon" onClick={() => setDeleting(match)} aria-label={`Delete ${match.title}`}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
                         </TableCell>}
@@ -213,8 +264,29 @@ export default function MatchesPage() {
       <MatchFormDialog open={formOpen} match={editing} venues={venues} onOpenChange={setFormOpen} onSaved={retry} />
       <Dialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open) setDeleting(null) }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Delete match?</DialogTitle><DialogDescription>Delete “{deleting?.title}”? This is allowed only when the match has no operational records. Otherwise, cancel the match to preserve its audit trail.</DialogDescription></DialogHeader>
-          <DialogFooter><Button variant="outline" onClick={() => setDeleting(null)}>Keep match</Button><Button variant="destructive" onClick={() => { void confirmDelete() }}>Delete match</Button></DialogFooter>
+          <DialogHeader><DialogTitle>Delete match permanently?</DialogTitle><DialogDescription>Delete “{deleting?.title}” and every related record — requests, approvals, allocations, issuance, inventory, quotas, ticket categories and audit events. This cannot be undone.</DialogDescription></DialogHeader>
+          {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
+          <DialogFooter><Button variant="outline" onClick={() => setDeleting(null)}>Keep match</Button><Button variant="destructive" onClick={() => { void confirmDelete() }}>Delete match and records</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(categoryMatch)} onOpenChange={(open) => { if (!open && !categorySaving) setCategoryMatch(null) }}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Ticket categories</DialogTitle><DialogDescription>Categories available for “{categoryMatch?.title}”. Inventory pools and requests are created against these.</DialogDescription></DialogHeader>
+          {categoryError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{categoryError}</p>}
+          <div className="max-h-56 overflow-y-auto rounded-md border">
+            {categoryList.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No categories yet. Add the first one below.</p> : <ul className="divide-y">{categoryList.map((category) => <li key={category.id} className="flex items-center justify-between gap-3 p-3 text-sm"><span className="font-medium">{category.displayName}</span><span className="font-mono text-xs text-muted-foreground">{category.name} · tier {category.pricingTier}</span></li>)}</ul>}
+          </div>
+          <form onSubmit={addCategory} className="space-y-3 rounded-md border p-3">
+            <p className="text-sm font-medium">Add category</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2"><Label htmlFor="category-name">Display name</Label><Input id="category-name" required minLength={2} maxLength={100} placeholder="e.g. Premium" value={categoryForm.displayName} onChange={(event) => setCategoryForm({ ...categoryForm, displayName: event.target.value })} disabled={categorySaving} /></div>
+              <div className="space-y-2"><Label htmlFor="category-tier">Pricing tier</Label><Input id="category-tier" type="number" min={0} max={10} value={categoryForm.pricingTier} onChange={(event) => setCategoryForm({ ...categoryForm, pricingTier: event.target.value })} disabled={categorySaving} /></div>
+              <div className="space-y-2"><Label htmlFor="category-order">Sort order</Label><Input id="category-order" type="number" min={0} value={categoryForm.sortOrder} onChange={(event) => setCategoryForm({ ...categoryForm, sortOrder: event.target.value })} disabled={categorySaving} /></div>
+              <div className="space-y-2"><Label htmlFor="category-colour">Colour</Label><Input id="category-colour" type="color" className="h-10 p-1" value={categoryForm.colorCode} onChange={(event) => setCategoryForm({ ...categoryForm, colorCode: event.target.value })} disabled={categorySaving} /></div>
+            </div>
+            <Button type="submit" size="sm" disabled={categorySaving}>{categorySaving ? "Adding…" : "Add category"}</Button>
+          </form>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setCategoryMatch(null)} disabled={categorySaving}>Close</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </MainLayout>

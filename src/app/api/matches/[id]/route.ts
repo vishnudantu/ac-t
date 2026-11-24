@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { hasPermission } from '@/lib/auth'
+import { hasRole } from '@/lib/auth'
 import { withApiHandler } from '@/lib/api'
 import { matchCreateSchema } from '@/lib/validation'
 import { z } from 'zod'
@@ -10,7 +10,9 @@ const idSchema = z.string().trim().min(1).max(100)
 
 export const PATCH = withApiHandler<Context>(async (request, session, context) => {
   if (!context) return NextResponse.json({ error: 'Match ID required' }, { status: 400 })
-  if (!hasPermission(session.permissions, 'matches:write')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!hasRole(session.roles, ['SUPER_ADMIN', 'MATCH_ADMIN'])) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
   const id = idSchema.parse((await context.params).id)
   const data = matchCreateSchema.partial().extend({ status: z.enum(['UPCOMING', 'ACTIVE', 'COMPLETED', 'CANCELLED']).optional() }).strict().parse(await request.json())
   const match = await prisma.$transaction(async (tx) => {
@@ -33,30 +35,31 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
   return NextResponse.json({ success: true, match })
 })
 
+/**
+ * Super administrators may delete a match outright. Every dependent record
+ * (requests, approvals, allocations, issuance, inventory, quotas, categories,
+ * sessions, workflows, audit events) is removed with it.
+ */
 export const DELETE = withApiHandler<Context>(async (_request, session, context) => {
   if (!context) return NextResponse.json({ error: 'Match ID required' }, { status: 400 })
-  if (!hasPermission(session.permissions, 'matches:delete')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!hasRole(session.roles, 'SUPER_ADMIN')) {
+    return NextResponse.json({ error: 'Only a super administrator can delete a match' }, { status: 403 })
+  }
   const id = idSchema.parse((await context.params).id)
-  const deleted = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const match = await tx.match.findUnique({ where: { id }, select: { id: true, title: true } })
     if (!match) return null
-    const [requests, inventory, quotas, batches, allocations] = await Promise.all([
-      tx.request.count({ where: { matchId: id } }),
-      tx.inventoryPool.count({ where: { matchId: id } }),
-      tx.quotaPool.count({ where: { matchId: id } }),
-      tx.distributionBatch.count({ where: { matchId: id } }),
-      tx.allocation.count({ where: { matchId: id } }),
-    ])
-    if (requests + inventory + quotas + batches + allocations > 0) {
-      return NextResponse.json({ success: false, error: 'This match has operational records and cannot be deleted. Cancel it instead to preserve the audit trail.' }, { status: 409 })
-    }
+    // Rows whose match link is nullable must be cleared or removed explicitly.
+    await tx.auditEvent.deleteMany({ where: { matchId: id } })
+    await tx.importJob.deleteMany({ where: { matchId: id } })
+    await tx.exportJob.deleteMany({ where: { matchId: id } })
+    await tx.roleAssignment.deleteMany({ where: { matchId: id } })
+    // Clones keep existing but lose their link.
+    await tx.match.updateMany({ where: { clonedFromMatchId: id }, data: { clonedFromMatchId: null } })
+    // Remaining dependent tables cascade from Match.
     await tx.match.delete({ where: { id } })
-    await tx.auditEvent.create({ data: {
-      userId: session.userId, entityType: 'MATCH', entityId: id, action: 'DELETE',
-      oldValues: JSON.stringify(match), changedFields: ['id', 'title'],
-    } })
-    return NextResponse.json({ success: true })
+    return match
   })
-  if (!deleted) return NextResponse.json({ error: 'Match not found' }, { status: 404 })
-  return deleted
+  if (!result) return NextResponse.json({ error: 'Match not found' }, { status: 404 })
+  return NextResponse.json({ success: true, deleted: result })
 })
