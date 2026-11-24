@@ -15,6 +15,7 @@ import {
 import { useTheme } from "next-themes"
 import { useSession } from "@/hooks/use-session"
 import { LogoutButton } from "./logout-button"
+import { GlobalSearch } from "./global-search"
 
 export function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const { theme, setTheme } = useTheme()
@@ -28,7 +29,7 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
           <Menu className="h-5 w-5" />
         </Button>
 
-        <div className="min-w-0 flex-1" />
+        <div className="min-w-0 flex-1"><GlobalSearch /></div>
 
         {/* Right Side Actions */}
         <div className="flex items-center gap-2">

@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { z, ZodError } from 'zod'
 import { getSession, hasPermission, hasRole, type SessionPayload } from '@/lib/auth'
+import { sendNotification } from '@/lib/notifications'
 import {
   approvalActionSchema,
   approvalListQuerySchema,
@@ -94,6 +95,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ? approveStep(tx, step, input, session)
         : closeRequest(tx, step, input, session)
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    // Fire-and-forget requester notification; delivery is logged, never blocks the decision.
+    void notifyDecision(result.requestStatus, input.stepId).catch(() => undefined)
     return NextResponse.json({ success: true, ...result })
   } catch (error: unknown) {
     return handleError(error, 'Failed to record approval decision')
@@ -248,4 +251,17 @@ function handleError(error: unknown, fallback: string): NextResponse {
 
 function responseError(error: string, status: number): NextResponse {
   return NextResponse.json({ success: false, error }, { status })
+}
+
+
+async function notifyDecision(requestStatus: string, stepId: string): Promise<void> {
+  const step = await prisma.approvalStep.findUnique({
+    where: { id: stepId },
+    select: { request: { select: { requestNumber: true, createdById: true, totalApproved: true, totalRequested: true } } },
+  })
+  if (!step) return
+  const { requestNumber, createdById, totalApproved, totalRequested } = step.request
+  const subject = `Ticket request ${requestNumber} ${requestStatus.toLowerCase().replace('_', ' ')}`
+  const body = `Your request ${requestNumber} is ${requestStatus.toLowerCase().replace('_', ' ')}. Approved ${totalApproved} of ${totalRequested} tickets.`
+  await sendNotification({ recipientId: createdById, channel: 'EMAIL', subject, body, templateKey: requestStatus === 'APPROVED' ? 'request_approved' : 'request_rejected' })
 }

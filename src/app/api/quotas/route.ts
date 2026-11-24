@@ -5,6 +5,7 @@ import { hasPermission, type SessionPayload } from '@/lib/auth'
 import { withApiHandler } from '@/lib/api'
 import { quotaCreateSchema, quotaListQuerySchema } from '@/lib/validation'
 import { apiError } from '@/lib/api-core'
+import { assertQuotaCapacity } from '@/lib/capacity'
 
 export const GET = withApiHandler(async (request: NextRequest, session: SessionPayload) => {
   if (!hasPermission(session.permissions, 'quotas:read')) return apiError('Forbidden', 403)
@@ -46,6 +47,9 @@ export const POST = withApiHandler(async (request: NextRequest, session: Session
       return apiError('Every quota category must be active and belong to the match', 422)
     }
     const totalAllocation = data.allocations?.reduce((sum, item) => sum + item.allocatedQuantity, 0) || 0
+    for (const item of data.allocations || []) {
+      await assertQuotaCapacity(tx, data.matchId, item.ticketCategoryId, item.allocatedQuantity)
+    }
     const created = await tx.quotaPool.create({
       data: {
         matchId: data.matchId, name: data.name, displayName: data.displayName,

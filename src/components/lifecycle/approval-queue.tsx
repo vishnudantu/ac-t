@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatDate, formatNumber, formatStatus, getPriorityColor, getStatusColor } from "@/lib/utils"
+import { formatDate, formatNumber, formatPhone, formatStatus, getPriorityColor, getStatusColor } from "@/lib/utils"
 import { EmptyState } from "@/components/operations/data-state"
 import { ApprovalDecisionDialog } from "./approval-decision-dialog"
 import type { ApprovalAction } from "./rules"
@@ -50,7 +50,8 @@ export function ApprovalQueue({ steps, canDecide, historical, filtered, onClear,
                     <Badge className={getPriorityColor(request.priority)}>{formatStatus(request.priority)}</Badge>
                     <Badge className={getStatusColor(step.status)}>{formatStatus(step.status)}</Badge>
                   </div>
-                  <h2 className="mt-2 font-semibold">{request.requester.fullName}</h2>
+                  <h2 className="mt-2 text-xl font-semibold tracking-tight">{request.requester.fullName}</h2>
+                  <p className="text-sm text-muted-foreground">{formatPhone(request.requester.mobileNumber)}</p>
                   <p className="text-sm text-muted-foreground">{request.match.title} · {formatDate(request.match.matchDate)}</p>
                   <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
                     <p><span className="font-medium text-foreground">Step {step.stepOrder}</span><br />{step.name}</p>

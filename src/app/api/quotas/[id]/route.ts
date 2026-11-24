@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { hasPermission, hasRole } from '@/lib/auth'
 import { withApiHandler } from '@/lib/api'
+import { assertQuotaCapacity } from '@/lib/capacity'
 
 interface Context { params: Promise<{ id: string }> }
 const idSchema = z.string().trim().min(1).max(100)
@@ -38,6 +39,9 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
       })
       if (categories.length !== input.allocations.length || categories.some((category) => category.matchId !== current.matchId || !category.isActive)) {
         throw new Error('Every quota category must be active and belong to the match')
+      }
+      for (const item of input.allocations) {
+        await assertQuotaCapacity(tx, current.matchId, item.ticketCategoryId, item.allocatedQuantity, id)
       }
       await tx.quotaAllocation.deleteMany({ where: { quotaPoolId: id } })
       await tx.quotaAllocation.createMany({ data: input.allocations.map((item) => ({
