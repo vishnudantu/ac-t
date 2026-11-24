@@ -3,8 +3,10 @@
 import * as React from "react"
 import Link from "next/link"
 import type { Prisma } from "@prisma/client"
-import { AlertCircle, Download, Eye, FileText, Plus, Search, Upload } from "lucide-react"
+import { AlertCircle, Download, Eye, FileText, Pencil, Plus, Search, Trash2, Upload } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
+import { useToast } from "@/hooks/use-toast"
+import { useRouter } from "next/navigation"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { formatDate, formatStatus, getPriorityColor, getStatusColor } from "@/lib/utils"
 
 type RequestRecord = Prisma.RequestGetPayload<{
@@ -43,6 +46,8 @@ const PAGE_SIZE = 25
 const selectClassName = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 
 export default function RequestsPage() {
+  const router = useRouter()
+  const { toast } = useToast()
   const { user, loading: sessionLoading } = useSession()
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
@@ -56,6 +61,10 @@ export default function RequestsPage() {
 
   const canRead = Boolean(user?.permissions.includes("requests:read"))
   const canWrite = Boolean(user?.permissions.includes("requests:write"))
+  const canDelete = Boolean(user?.roles?.includes("SUPER_ADMIN"))
+  const [deleting, setDeleting] = React.useState<{ id: string; requestNumber: string } | null>(null)
+  const [deleteError, setDeleteError] = React.useState("")
+  const [deleteSaving, setDeleteSaving] = React.useState(false)
   const canImport = Boolean(user?.permissions.includes("requests:bulk_import"))
   const canExport = Boolean(user?.permissions.includes("requests:export"))
 
@@ -109,6 +118,24 @@ export default function RequestsPage() {
     event.preventDefault()
     setSearch(searchInput.trim())
     setOffset(0)
+  }
+
+  async function deleteRequest() {
+    if (!deleting) return
+    setDeleteSaving(true)
+    setDeleteError("")
+    try {
+      const result = await fetch(`/api/requests/${encodeURIComponent(deleting.id)}`, { method: "DELETE" })
+      const body: unknown = await result.json()
+      if (!result.ok) throw new Error(getApiError(body, "Unable to delete request"))
+      toast({ title: "Request deleted", description: deleting.requestNumber })
+      setDeleting(null)
+      setReloadKey((key) => key + 1)
+    } catch (deleteError: unknown) {
+      setDeleteError(getErrorMessage(deleteError))
+    } finally {
+      setDeleteSaving(false)
+    }
   }
 
   return (
@@ -205,7 +232,11 @@ export default function RequestsPage() {
                             <TableCell><Badge className={getStatusColor(request.status)}>{formatStatus(request.status)}</Badge></TableCell>
                             <TableCell><Badge className={getPriorityColor(request.priority)}>{formatStatus(request.priority)}</Badge></TableCell>
                             <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatDate(request.createdAt)}<p>{request.assignedTo?.fullName || "Unassigned"}</p></TableCell>
-                            <TableCell><Button variant="ghost" size="sm" asChild><Link href={`/requests/${request.id}`} aria-label={`View ${request.requestNumber}`}><Eye className="mr-2 h-4 w-4" />View</Link></Button></TableCell>
+                            <TableCell><div className="flex justify-start gap-1">
+                              <Button variant="ghost" size="sm" asChild><Link href={`/requests/${request.id}`} aria-label={`View ${request.requestNumber}`}><Eye className="mr-2 h-4 w-4" />View</Link></Button>
+                              {canWrite && ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "PARTIALLY_APPROVED"].includes(request.status) && <Button variant="ghost" size="icon" aria-label={`Edit ${request.requestNumber}`} onClick={() => router.push(`/requests/${request.id}?edit=1`)}><Pencil className="h-4 w-4" /></Button>}
+                              {canDelete && <Button variant="ghost" size="icon" aria-label={`Delete ${request.requestNumber}`} onClick={() => { setDeleteError(""); setDeleting({ id: request.id, requestNumber: request.requestNumber }) }}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                            </div></TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -222,6 +253,13 @@ export default function RequestsPage() {
           </>
         )}
       </div>
+    <Dialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !deleteSaving) setDeleting(null) }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Delete request</DialogTitle><DialogDescription>Delete {deleting?.requestNumber} and its items? Requests with active allocations cannot be deleted.</DialogDescription></DialogHeader>
+        {deleteError && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{deleteError}</AlertDescription></Alert>}
+        <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setDeleting(null)} disabled={deleteSaving}>Cancel</Button><Button variant="destructive" onClick={deleteRequest} disabled={deleteSaving}>{deleteSaving ? "Deleting…" : "Delete request"}</Button></div>
+      </DialogContent>
+    </Dialog>
     </MainLayout>
   )
 }

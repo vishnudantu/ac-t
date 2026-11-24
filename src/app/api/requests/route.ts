@@ -7,6 +7,7 @@ import { withApiHandler, ApiError } from '@/lib/api'
 import { requestCreateSchema, requestListQuerySchema } from '@/lib/validation'
 import { apiError } from '@/lib/api-core'
 import { MAX_REQUEST_ITEMS } from '@/lib/lifecycle-rules'
+import { ensureApprovalWorkflow } from '@/lib/approval-workflow'
 
 export const GET = withApiHandler(async (request: NextRequest, session: SessionPayload) => {
   if (!hasPermission(session.permissions, 'requests:read')) return apiError('Forbidden', 403)
@@ -68,13 +69,9 @@ export const POST = withApiHandler(async (request: NextRequest, session: Session
       const assignedTo = await tx.user.findUnique({ where: { id: data.assignedToId }, select: { isActive: true } })
       if (!assignedTo?.isActive) throw new ApiError(422, 'Assigned user is not active')
     }
-    const workflow = data.status === 'SUBMITTED' ? await tx.approvalWorkflow.findFirst({
-      where: { matchId: data.matchId, isActive: true },
-      include: { steps: { where: { isActive: true }, orderBy: { stepOrder: 'asc' } } },
-      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-    }) : null
-    if (data.status === 'SUBMITTED' && !workflow?.steps.length) {
-      throw new ApiError(422, 'This match has no active approval workflow. Save as a draft or contact a match administrator.')
+    const workflow = data.status === 'SUBMITTED' ? await ensureApprovalWorkflow(tx, data.matchId) : null
+    if (data.status === 'SUBMITTED' && !workflow) {
+      throw new ApiError(422, 'No active approver role is available for this match. Ask an administrator to seed roles or configure a workflow.')
     }
     const requestNumber = generateRequestNumber()
     const newRequest = await tx.request.create({

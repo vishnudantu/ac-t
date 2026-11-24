@@ -38,11 +38,13 @@ export default function InventoryPage() {
   const [createError, setCreateError] = useState("")
   const [createSaving, setCreateSaving] = useState(false)
   const [matches, setMatches] = useState<{ id: string; title: string }[]>([])
-  const [categoryOptionsForCreate, setCategories] = useState<{ id: string; displayName: string }[]>([])
+  const [categoryOptionsForCreate, setCategories] = useState<{ id: string; displayName: string; pricingTier: number }[]>([])
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [categoryError, setCategoryError] = useState("")
   const [categorySaving, setCategorySaving] = useState(false)
   const [categoryForm, setCategoryForm] = useState({ displayName: "", pricingTier: "0", sortOrder: "0", colorCode: "#1e3a8a" })
+  const [editingCategory, setEditingCategory] = useState<{ id: string; displayName: string; pricingTier: number } | null>(null)
+  const [deletingCategory, setDeletingCategory] = useState<{ id: string; displayName: string } | null>(null)
   const [createForm, setCreateForm] = useState({ matchId: "", ticketCategoryId: "", standName: "", blockName: "", gateName: "", ticketFormat: "PHYSICAL", faceValue: "", totalQuantity: "" })
   const canAdjust = Boolean(user?.permissions.includes("inventory:adjust"))
   const canWrite = Boolean(user?.permissions.includes("inventory:write"))
@@ -65,7 +67,7 @@ export default function InventoryPage() {
     if (!matchId) return
     try {
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/categories`, { cache: "no-store" })
-      const body = await response.json() as { categories?: { id: string; displayName: string }[] }
+      const body = await response.json() as { categories?: { id: string; displayName: string; pricingTier: number }[] }
       setCategories(body.categories || [])
     } catch { setCategories([]) }
   }
@@ -107,6 +109,50 @@ export default function InventoryPage() {
       setCategoryOpen(false)
     } catch (cause: unknown) {
       setCategoryError(cause instanceof Error ? cause.message : "Unable to create ticket category")
+    } finally {
+      setCategorySaving(false)
+    }
+  }
+
+  function startCategoryEdit(category: { id: string; displayName: string; pricingTier: number }) {
+    setEditingCategory(category)
+    setCategoryForm({ displayName: category.displayName, pricingTier: String(category.pricingTier), sortOrder: "0", colorCode: "#1e3a8a" })
+    setCategoryError("")
+  }
+
+  async function saveCategory(event: React.FormEvent) {
+    event.preventDefault()
+    if (!editingCategory) return
+    setCategorySaving(true)
+    setCategoryError("")
+    try {
+      const response = await fetch(`/api/ticket-categories/${encodeURIComponent(editingCategory.id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: categoryForm.displayName, pricingTier: Number(categoryForm.pricingTier) }),
+      })
+      const body = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(body.error || "Unable to update category")
+      setEditingCategory(null)
+      await loadCategories(createForm.matchId)
+    } catch (cause: unknown) {
+      setCategoryError(cause instanceof Error ? cause.message : "Unable to update category")
+    } finally {
+      setCategorySaving(false)
+    }
+  }
+
+  async function deleteCategory() {
+    if (!deletingCategory) return
+    setCategorySaving(true)
+    setCategoryError("")
+    try {
+      const response = await fetch(`/api/ticket-categories/${encodeURIComponent(deletingCategory.id)}`, { method: "DELETE" })
+      const body = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(body.error || "Unable to delete category")
+      setDeletingCategory(null)
+      await loadCategories(createForm.matchId)
+    } catch (cause: unknown) {
+      setCategoryError(cause instanceof Error ? cause.message : "Unable to delete category")
     } finally {
       setCategorySaving(false)
     }
@@ -345,19 +391,20 @@ export default function InventoryPage() {
           {categoryError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{categoryError}</p>}
           <div className="space-y-2"><Label htmlFor="category-match">Match</Label><select id="category-match" className={selectClassName} value={createForm.matchId} onChange={(event) => selectCategoryMatch(event.target.value)}><option value="">Select match</option>{matches.map((match) => <option key={match.id} value={match.id}>{match.title}</option>)}</select></div>
           <div className="max-h-48 overflow-y-auto rounded-md border">
-            {categoryOptionsForCreate.length === 0 ? <p className="p-3 text-sm text-muted-foreground">{createForm.matchId ? "No categories yet. Add the first one below." : "Select a match to see its categories."}</p> : <ul className="divide-y">{categoryOptionsForCreate.map((category) => <li key={category.id} className="p-3 text-sm font-medium">{category.displayName}</li>)}</ul>}
+            {categoryOptionsForCreate.length === 0 ? <p className="p-3 text-sm text-muted-foreground">{createForm.matchId ? "No categories yet. Add the first one below." : "Select a match to see its categories."}</p> : <ul className="divide-y">{categoryOptionsForCreate.map((category) => <li key={category.id} className="flex items-center justify-between gap-2 p-3 text-sm"><span className="font-medium">{category.displayName}</span><span className="flex gap-1">{canWrite && <Button type="button" variant="ghost" size="icon" aria-label={`Edit category ${category.displayName}`} onClick={() => startCategoryEdit(category)}><Pencil className="h-4 w-4" /></Button>}{canDelete && <Button type="button" variant="ghost" size="icon" aria-label={`Delete category ${category.displayName}`} onClick={() => { setCategoryError(""); setDeletingCategory(category) }}><Trash2 className="h-4 w-4 text-destructive" /></Button>}</span></li>)}</ul>}
           </div>
           <form onSubmit={createCategory} className="space-y-3 rounded-md border p-3">
-            <p className="text-sm font-medium">Add category</p>
+            <p className="text-sm font-medium">{editingCategory ? `Edit ${editingCategory.displayName}` : "Add category"}</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2"><Label htmlFor="category-name">Display name</Label><Input id="category-name" required minLength={2} maxLength={100} placeholder="e.g. Premium" value={categoryForm.displayName} onChange={(event) => setCategoryForm({ ...categoryForm, displayName: event.target.value })} disabled={categorySaving} /></div>
               <div className="space-y-2"><Label htmlFor="category-tier">Pricing tier</Label><Input id="category-tier" type="number" min={0} max={10} value={categoryForm.pricingTier} onChange={(event) => setCategoryForm({ ...categoryForm, pricingTier: event.target.value })} disabled={categorySaving} /></div>
               <div className="space-y-2"><Label htmlFor="category-order">Sort order</Label><Input id="category-order" type="number" min={0} value={categoryForm.sortOrder} onChange={(event) => setCategoryForm({ ...categoryForm, sortOrder: event.target.value })} disabled={categorySaving} /></div>
               <div className="space-y-2"><Label htmlFor="category-colour">Colour</Label><Input id="category-colour" type="color" className="h-10 p-1" value={categoryForm.colorCode} onChange={(event) => setCategoryForm({ ...categoryForm, colorCode: event.target.value })} disabled={categorySaving} /></div>
             </div>
-            <Button type="submit" size="sm" disabled={categorySaving || !createForm.matchId}>{categorySaving ? "Adding…" : "Add category"}</Button>
+            <div className="flex gap-2"><Button type="submit" size="sm" disabled={categorySaving || (!editingCategory && !createForm.matchId)}>{categorySaving ? "Saving..." : editingCategory ? "Save changes" : "Add category"}</Button>{editingCategory && <Button type="button" size="sm" variant="outline" onClick={() => { setEditingCategory(null); setCategoryForm({ displayName: "", pricingTier: "0", sortOrder: "0", colorCode: "#1e3a8a" }) }}>New category</Button>}</div>
           </form>
-          <DialogFooter><Button type="button" variant="outline" onClick={() => setCategoryOpen(false)} disabled={categorySaving}>Close</Button></DialogFooter>
+          {deletingCategory && <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3"><p className="text-sm">Delete {deletingCategory.displayName}? Categories used by inventory, requests, or quotas cannot be deleted.</p><div className="flex gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setDeletingCategory(null)} disabled={categorySaving}>Cancel</Button><Button type="button" size="sm" variant="destructive" onClick={deleteCategory} disabled={categorySaving}>{categorySaving ? "Deleting..." : "Delete"}</Button></div></div>}
+          <DialogFooter><Button type="button" variant="outline" onClick={() => { setCategoryOpen(false); setEditingCategory(null); setDeletingCategory(null) }} disabled={categorySaving}>Close</Button></DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !deleteSaving) setDeleting(null) }}>

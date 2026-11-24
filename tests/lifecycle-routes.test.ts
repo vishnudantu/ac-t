@@ -356,9 +356,12 @@ describe('request creation route', () => {
       requester: { findUnique: jest.fn().mockResolvedValue({ id: 'requester-1', isActive: true }) },
       ticketCategory: { findMany: jest.fn().mockResolvedValue([{ id: 'category-1', matchId: 'match-1', isActive: true }]) },
       user: { findUnique: jest.fn().mockResolvedValue({ isActive: true }) },
+      role: { findFirst: jest.fn().mockResolvedValue({ id: 'role-approver' }) },
       approvalWorkflow: { findFirst: jest.fn().mockResolvedValue({ id: 'workflow-1', steps: [
         { id: 'definition-1', stepOrder: 1, name: 'First', approverUserId: 'approver-1', approverRoleId: null, timeoutHours: 24 },
         { id: 'definition-2', stepOrder: 2, name: 'Second', approverUserId: null, approverRoleId: 'role-1', timeoutHours: null },
+      ] }), create: jest.fn().mockResolvedValue({ id: 'workflow-new', steps: [
+        { id: 'definition-new', stepOrder: 1, name: 'Approval review', approverUserId: null, approverRoleId: 'role-approver', timeoutHours: 48 },
       ] }) },
       request: { create: jest.fn().mockResolvedValue({ id: 'request-1', requestNumber: 'REQ-1', totalRequested: 2, items: [] }) },
       approvalStep: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
@@ -397,18 +400,34 @@ describe('request creation route', () => {
     expect(prismaMock.$transaction).not.toHaveBeenCalled()
   })
 
-  it('requires an active workflow when submitting but allows a draft without one', async () => {
+  it('auto-provisions a workflow when submitting and skips steps for a draft', async () => {
     const tx = requestTx()
     tx.approvalWorkflow.findFirst.mockResolvedValue(null)
+    tx.role.findFirst.mockResolvedValue({ id: 'role-approver' })
+    tx.approvalWorkflow.create.mockResolvedValue({
+      id: 'workflow-1',
+      steps: [{ id: 'step-def-1', stepOrder: 1, name: 'Approval review', approverRoleId: 'role-approver', approverUserId: null, timeoutHours: 48 }],
+    })
     prismaMock.$transaction.mockImplementation(async (callback) => callback(tx))
     const submitted = await requestsPost(request({ ...baseRequest, status: 'SUBMITTED' }))
-    expect(submitted.status).toBe(422)
-    expect(tx.request.create).not.toHaveBeenCalled()
+    expect(submitted.status).toBe(201)
+    expect(tx.approvalWorkflow.create).toHaveBeenCalled()
+    expect(tx.approvalStep.createMany).toHaveBeenCalled()
 
     const draftTx = requestTx()
     prismaMock.$transaction.mockImplementation(async (callback) => callback(draftTx))
     const draft = await requestsPost(request({ ...baseRequest, status: 'DRAFT' }))
     expect(draft.status).toBe(201)
     expect(draftTx.approvalStep.createMany).not.toHaveBeenCalled()
+  })
+
+  it('still refuses submission when no role can decide approvals', async () => {
+    const tx = requestTx()
+    tx.approvalWorkflow.findFirst.mockResolvedValue(null)
+    tx.role.findFirst.mockResolvedValue(null)
+    prismaMock.$transaction.mockImplementation(async (callback) => callback(tx))
+    const response = await requestsPost(request({ ...baseRequest, status: 'SUBMITTED' }))
+    expect(response.status).toBe(422)
+    expect(tx.request.create).not.toHaveBeenCalled()
   })
 })
