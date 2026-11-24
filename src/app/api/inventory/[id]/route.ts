@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { hasPermission } from '@/lib/auth'
+import { hasPermission, hasRole } from '@/lib/auth'
 import { withApiHandler } from '@/lib/api'
 
 interface Context { params: Promise<{ id: string }> }
@@ -39,4 +39,31 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
   })
   if (!pool) return NextResponse.json({ error: 'Inventory not found' }, { status: 404 })
   return NextResponse.json({ success: true, inventory: pool })
+})
+
+export const DELETE = withApiHandler<Context>(async (_request, session, context) => {
+  if (!context) return NextResponse.json({ error: 'Inventory ID required' }, { status: 400 })
+  if (!hasRole(session.roles, 'SUPER_ADMIN')) return NextResponse.json({ error: 'Only a super administrator can delete records' }, { status: 403 })
+  const id = z.string().min(1).max(250).parse((await context.params).id)
+  const current = await prisma.inventoryPool.findUnique({
+    where: { id },
+    select: { id: true, matchId: true, standName: true, blockName: true, totalQuantity: true },
+  })
+  if (!current) return NextResponse.json({ error: 'Inventory not found' }, { status: 404 })
+  const [allocations, serials] = await Promise.all([
+    prisma.allocationItem.count({ where: { inventoryPoolId: id } }),
+    prisma.ticketSerial.count({ where: { inventoryPoolId: id } }),
+  ])
+  if (allocations + serials > 0) {
+    return NextResponse.json({ error: 'This pool has allocation or serial history and cannot be deleted. Adjust its quantity to zero instead.' }, { status: 409 })
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.inventoryPool.delete({ where: { id } })
+    await tx.match.update({ where: { id: current.matchId }, data: { totalInventory: { decrement: current.totalQuantity } } })
+    await tx.auditEvent.create({ data: {
+      userId: session.userId, matchId: current.matchId, entityType: 'INVENTORY', entityId: id, action: 'DELETE',
+      oldValues: JSON.stringify(current), changedFields: ['id', 'totalQuantity'],
+    } })
+  })
+  return NextResponse.json({ success: true })
 })

@@ -259,56 +259,56 @@ export default function AdminImportExportPage() {
                 <CardTitle className="flex items-center justify-between">
                   New Import
                   <Button variant="outline" size="sm" asChild>
-                    <Link href="/admin/import-export/import/new">
+                    <a href="/api/templates?type=requests" download>
                       <Download className="h-4 w-4 mr-2" />
                       Download Templates
-                    </Link>
+                    </a>
                   </Button>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-3">
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/requests/import">
+                    <Link href="/requests/new">
                       <Upload className="h-8 w-8" />
                       <span>Import Requests</span>
                       <span className="text-xs text-muted-foreground">Excel/CSV</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/inventory/import">
+                    <Link href="/inventory">
                       <Upload className="h-8 w-8" />
-                      <span>Import Inventory</span>
-                      <span className="text-xs text-muted-foreground">Manifest Excel</span>
+                      <span>Manage Inventory</span>
+                      <span className="text-xs text-muted-foreground">Create pools</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/requesters/import">
+                    <Link href="/requesters">
                       <Upload className="h-8 w-8" />
-                      <span>Import Requesters</span>
-                      <span className="text-xs text-muted-foreground">Excel/CSV</span>
+                      <span>Add Requesters</span>
+                      <span className="text-xs text-muted-foreground">Requester directory</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/quotas/import">
+                    <Link href="/quotas">
                       <Upload className="h-8 w-8" />
-                      <span>Import Quotas</span>
-                      <span className="text-xs text-muted-foreground">Excel/CSV</span>
+                      <span>Manage Quotas</span>
+                      <span className="text-xs text-muted-foreground">Quota pools</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/distribution/import">
+                    <Link href="/distribution">
                       <Upload className="h-8 w-8" />
-                      <span>Import Distribution</span>
-                      <span className="text-xs text-muted-foreground">Excel/CSV</span>
+                      <span>Distribute Tickets</span>
+                      <span className="text-xs text-muted-foreground">Issue and track</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/admin/import-export/import/new">
-                      <Upload className="h-8 w-8" />
-                      <span>Custom Import</span>
-                      <span className="text-xs text-muted-foreground">Any type</span>
-                    </Link>
+                    <a href="/api/templates?type=inventory" download>
+                      <Download className="h-8 w-8" />
+                      <span>Inventory Template</span>
+                      <span className="text-xs text-muted-foreground">Sample CSV</span>
+                    </a>
                   </Button>
                 </div>
               </CardContent>
@@ -398,52 +398,52 @@ export default function AdminImportExportPage() {
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-4">
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/requests/export">
+                    <Link href="/requests">
                       <Download className="h-8 w-8" />
                       <span>Export Requests</span>
-                      <span className="text-xs text-muted-foreground">Excel/CSV/PDF</span>
+                      <span className="text-xs text-muted-foreground">Open request register</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/allocations/export">
+                    <Link href="/allocations">
                       <Download className="h-8 w-8" />
                       <span>Export Allocations</span>
-                      <span className="text-xs text-muted-foreground">Excel/CSV/PDF</span>
+                      <span className="text-xs text-muted-foreground">Open allocations</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/inventory/export">
+                    <Link href="/inventory">
                       <Download className="h-8 w-8" />
                       <span>Export Inventory</span>
-                      <span className="text-xs text-muted-foreground">Excel/CSV/PDF</span>
+                      <span className="text-xs text-muted-foreground">Open inventory</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/reports/export">
+                    <Link href="/reports">
                       <Download className="h-8 w-8" />
                       <span>Export Reports</span>
-                      <span className="text-xs text-muted-foreground">PDF/Excel</span>
+                      <span className="text-xs text-muted-foreground">CSV / Excel / Print</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/distribution/export">
+                    <Link href="/distribution">
                       <Download className="h-8 w-8" />
                       <span>Export Distribution</span>
-                      <span className="text-xs text-muted-foreground">Manifest/Excel</span>
+                      <span className="text-xs text-muted-foreground">Open distribution</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/audit/export">
+                    <Link href="/audit">
                       <Download className="h-8 w-8" />
                       <span>Export Audit Logs</span>
-                      <span className="text-xs text-muted-foreground">Excel/CSV</span>
+                      <span className="text-xs text-muted-foreground">Open audit trail</span>
                     </Link>
                   </Button>
                   <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/admin/import-export/export/new">
+                    <Link href="/reports">
                       <Download className="h-8 w-8" />
                       <span>Custom Export</span>
-                      <span className="text-xs text-muted-foreground">Any type</span>
+                      <span className="text-xs text-muted-foreground">Build from reports</span>
                     </Link>
                   </Button>
                 </div>

@@ -136,13 +136,13 @@ export default function ProfilePage() {
     </Card>
 
     <Card className="shadow-none">
-      <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><KeyRound className="h-5 w-5" />Change password</CardTitle><CardDescription>Use at least 16 characters. Changing your password signs out every active session, including this one.</CardDescription></CardHeader>
+      <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><KeyRound className="h-5 w-5" />Change password</CardTitle><CardDescription>Use at least 8 characters. Changing your password signs out every active session, including this one.</CardDescription></CardHeader>
       <CardContent>
         {passwordError && <p role="alert" className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{passwordError}</p>}
         <form onSubmit={changePassword} className="max-w-md space-y-4">
           <div className="space-y-2"><Label htmlFor="current-password">Current password</Label><Input id="current-password" type="password" required autoComplete="current-password" maxLength={1024} value={password.currentPassword} onChange={(event) => setPassword({ ...password, currentPassword: event.target.value })} disabled={changing} /></div>
-          <div className="space-y-2"><Label htmlFor="new-password">New password</Label><Input id="new-password" type="password" required minLength={16} maxLength={128} autoComplete="new-password" value={password.newPassword} onChange={(event) => setPassword({ ...password, newPassword: event.target.value })} disabled={changing} /><p className="text-xs text-muted-foreground">16–128 characters. Do not reuse your current password.</p></div>
-          <div className="space-y-2"><Label htmlFor="confirm-password">Confirm new password</Label><Input id="confirm-password" type="password" required minLength={16} maxLength={128} autoComplete="new-password" value={password.confirmPassword} onChange={(event) => setPassword({ ...password, confirmPassword: event.target.value })} disabled={changing} /></div>
+          <div className="space-y-2"><Label htmlFor="new-password">New password</Label><Input id="new-password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={password.newPassword} onChange={(event) => setPassword({ ...password, newPassword: event.target.value })} disabled={changing} /><p className="text-xs text-muted-foreground">8–128 characters. Do not reuse your current password.</p></div>
+          <div className="space-y-2"><Label htmlFor="confirm-password">Confirm new password</Label><Input id="confirm-password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={password.confirmPassword} onChange={(event) => setPassword({ ...password, confirmPassword: event.target.value })} disabled={changing} /></div>
           <Button type="submit" disabled={changing}>{changing ? "Changing…" : "Change password & sign out"}</Button>
         </form>
       </CardContent>

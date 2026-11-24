@@ -21,7 +21,7 @@ export const PATCH = withApiHandler(async (request: NextRequest, session) => {
   await prisma.$transaction(async (tx) => {
     for (const setting of settings) {
       if (setting.key === 'security.session_timeout_hours' && setting.value !== '24') throw new Error('Session timeout is currently fixed at 24 hours')
-      if (setting.key === 'security.password_min_length' && Number(setting.value) < 16) throw new Error('Password minimum length must be at least 16 characters')
+      if (setting.key === 'security.password_min_length' && Number(setting.value) < 8) throw new Error('Password minimum length must be at least 8 characters')
       await tx.systemSetting.update({ where: { key: setting.key }, data: { value: setting.value } })
     }
     await tx.auditEvent.create({ data: {

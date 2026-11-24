@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { hasPermission } from '@/lib/auth'
+import { hasPermission, hasRole } from '@/lib/auth'
 import { withApiHandler } from '@/lib/api'
 
 interface Context { params: Promise<{ id: string }> }
@@ -30,4 +30,24 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
     return updated
   })
   return NextResponse.json({ success: true, venue })
+})
+
+export const DELETE = withApiHandler<Context>(async (_request, session, context) => {
+  if (!context) return NextResponse.json({ error: 'Venue ID required' }, { status: 400 })
+  if (!hasRole(session.roles, 'SUPER_ADMIN')) return NextResponse.json({ error: 'Only a super administrator can delete records' }, { status: 403 })
+  const id = z.string().min(1).max(100).parse((await context.params).id)
+  const current = await prisma.venue.findUnique({ where: { id }, select: { id: true, name: true } })
+  if (!current) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
+  const referenced = await prisma.venue.count({ where: { id, matches: { some: {} } } })
+  if (referenced > 0) {
+    return NextResponse.json({ error: 'This venue is used by one or more matches and cannot be deleted' }, { status: 409 })
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.venue.delete({ where: { id } })
+    await tx.auditEvent.create({ data: {
+      userId: session.userId, entityType: 'VENUE', entityId: id, action: 'DELETE',
+      oldValues: JSON.stringify(current), changedFields: ['id', 'name'],
+    } })
+  })
+  return NextResponse.json({ success: true })
 })

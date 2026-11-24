@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { LayoutDashboard, Calendar, FileText, Users, Ticket, Package, Truck, Shield, Settings, BarChart3, ClipboardList, FolderOpen, Bell, UserCog, Database, ChevronLeft, ChevronRight } from "lucide-react"
+import { LayoutDashboard, Calendar, FileText, Users, Ticket, Package, Truck, Shield, Settings, BarChart3, ClipboardList, FolderOpen, Bell, UserCog, Database, ChevronLeft, ChevronRight, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSession } from "@/hooks/use-session"
 import { LogoutButton } from "./logout-button"
@@ -17,6 +17,7 @@ interface SidebarProps {
 const navigation = [
   { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { title: "Matches", href: "/matches", icon: Calendar, permission: "matches:read" },
+  { title: "Venues", href: "/admin/venues", icon: Building2, permission: "matches:read" },
   { title: "Requests", href: "/requests", icon: FileText, permission: "requests:read" },
   { title: "Approvals", href: "/approvals", icon: ClipboardList, permission: "approvals:read" },
   { title: "Allocations", href: "/allocations", icon: Package, permission: "allocations:read" },

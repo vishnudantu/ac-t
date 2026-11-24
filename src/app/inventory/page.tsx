@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Archive, ArrowLeft, Boxes, CheckCircle2, Package, Ticket, XCircle, Pencil } from "lucide-react"
+import { Archive, ArrowLeft, Boxes, CheckCircle2, Package, Plus, Ticket, Trash2, XCircle, Pencil } from "lucide-react"
 import { MainLayout } from "@/components/layout/main-layout"
 import { useSession } from "@/hooks/use-session"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getInventory } from "@/components/operations/api"
+import { selectClassName } from "@/components/lifecycle/client"
 import { DataState, EmptyState, MetricSkeleton, TableSkeleton } from "@/components/operations/data-state"
 import { FilterSelect, Pagination, SearchInput } from "@/components/operations/list-controls"
 import { MetricCard } from "@/components/operations/metric-card"
@@ -30,7 +31,74 @@ export default function InventoryPage() {
   const [editTotal, setEditTotal] = useState("")
   const [editError, setEditError] = useState("")
   const [editSaving, setEditSaving] = useState(false)
+  const [deleting, setDeleting] = useState<(typeof inventory)[number] | null>(null)
+  const [deleteError, setDeleteError] = useState("")
+  const [deleteSaving, setDeleteSaving] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createError, setCreateError] = useState("")
+  const [createSaving, setCreateSaving] = useState(false)
+  const [matches, setMatches] = useState<{ id: string; title: string }[]>([])
+  const [categoryOptionsForCreate, setCategories] = useState<{ id: string; displayName: string }[]>([])
+  const [createForm, setCreateForm] = useState({ matchId: "", ticketCategoryId: "", standName: "", blockName: "", gateName: "", ticketFormat: "PHYSICAL", faceValue: "", totalQuantity: "" })
   const canAdjust = Boolean(user?.permissions.includes("inventory:adjust"))
+  const canWrite = Boolean(user?.permissions.includes("inventory:write"))
+  const canDelete = Boolean(user?.roles?.includes("SUPER_ADMIN"))
+
+  async function openCreate() {
+    setCreateError("")
+    setCreateForm({ matchId: "", ticketCategoryId: "", standName: "", blockName: "", gateName: "", ticketFormat: "PHYSICAL", faceValue: "", totalQuantity: "" })
+    setCreateOpen(true)
+    try {
+      const response = await fetch("/api/matches?limit=100", { cache: "no-store" })
+      const body = await response.json() as { matches?: { id: string; title: string }[] }
+      setMatches(body.matches || [])
+    } catch { setMatches([]) }
+  }
+
+  async function loadCategories(matchId: string) {
+    setCreateForm((current) => ({ ...current, matchId, ticketCategoryId: "" }))
+    setCategories([])
+    if (!matchId) return
+    try {
+      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/categories`, { cache: "no-store" })
+      const body = await response.json() as { categories?: { id: string; displayName: string }[] }
+      setCategories(body.categories || [])
+    } catch { setCategories([]) }
+  }
+
+  async function createInventory(event: React.FormEvent) {
+    event.preventDefault()
+    setCreateSaving(true)
+    setCreateError("")
+    try {
+      const response = await fetch("/api/inventory", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          matchId: createForm.matchId, ticketCategoryId: createForm.ticketCategoryId,
+          standName: createForm.standName, blockName: createForm.blockName || null,
+          gateName: createForm.gateName || null, ticketFormat: createForm.ticketFormat,
+          faceValue: createForm.faceValue || null, totalQuantity: Number(createForm.totalQuantity),
+        }),
+      })
+      const body = await response.json() as { error?: string; details?: { message: string }[] }
+      if (!response.ok) throw new Error(body.details?.[0]?.message || body.error || "Unable to create inventory pool")
+      setCreateOpen(false)
+      retry()
+    } catch (cause: unknown) { setCreateError(cause instanceof Error ? cause.message : "Unable to create inventory pool") } finally { setCreateSaving(false) }
+  }
+
+  async function deleteInventory() {
+    if (!deleting) return
+    setDeleteSaving(true)
+    setDeleteError("")
+    try {
+      const response = await fetch(`/api/inventory/${encodeURIComponent(deleting.id)}`, { method: "DELETE" })
+      const body = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(body.error || "Unable to delete inventory")
+      setDeleting(null)
+      retry()
+    } catch (cause: unknown) { setDeleteError(cause instanceof Error ? cause.message : "Unable to delete inventory") } finally { setDeleteSaving(false) }
+  }
 
   async function saveInventory(event: React.FormEvent) {
     event.preventDefault()
@@ -101,6 +169,7 @@ export default function InventoryPage() {
           description="Ticket stock and movement by match, category, and seating location."
           onRefresh={retry}
           refreshing={loading}
+          actions={canWrite ? <Button size="sm" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />New pool</Button> : undefined}
         />
         {loading && !summary ? <MetricSkeleton /> : error ? null : summary && (
           <section aria-labelledby="inventory-totals">
@@ -182,7 +251,7 @@ export default function InventoryPage() {
                         <TableCell className="text-right tabular-nums">{formatNumber(item.reservedQuantity)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatNumber(item.issuedQuantity)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{formatNumber(item.returnedQuantity)} / {formatNumber(item.voidQuantity)}</TableCell>
-                        {canAdjust && <TableCell><Button variant="ghost" size="icon" aria-label={`Edit inventory ${item.standName}`} onClick={() => { setEditing(item); setEditTotal(String(item.totalQuantity)); setEditError("") }}><Pencil className="h-4 w-4" /></Button></TableCell>}
+                        {canAdjust && <TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Edit inventory ${item.standName}`} onClick={() => { setEditing(item); setEditTotal(String(item.totalQuantity)); setEditError("") }}><Pencil className="h-4 w-4" /></Button>{canDelete && <Button variant="ghost" size="icon" aria-label={`Delete inventory ${item.standName}`} onClick={() => { setDeleteError(""); setDeleting(item) }}><Trash2 className="h-4 w-4 text-destructive" /></Button>}</div></TableCell>}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -203,6 +272,32 @@ export default function InventoryPage() {
             {editError && <p role="alert" className="text-sm text-destructive">{editError}</p>}
             <DialogFooter><Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" disabled={editSaving}>{editSaving ? "Saving…" : "Save quantity"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!createSaving) setCreateOpen(open) }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>New inventory pool</DialogTitle><DialogDescription>Add ticket stock for a match category and seating location.</DialogDescription></DialogHeader>
+          <form onSubmit={createInventory} className="space-y-4">
+            {createError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{createError}</p>}
+            <div className="space-y-2"><Label htmlFor="pool-match">Match</Label><select id="pool-match" className={selectClassName} required value={createForm.matchId} onChange={(event) => loadCategories(event.target.value)}><option value="">Select match</option>{matches.map((match) => <option key={match.id} value={match.id}>{match.title}</option>)}</select></div>
+            <div className="space-y-2"><Label htmlFor="pool-category">Ticket category</Label><select id="pool-category" className={selectClassName} required disabled={!createForm.matchId} value={createForm.ticketCategoryId} onChange={(event) => setCreateForm({ ...createForm, ticketCategoryId: event.target.value })}><option value="">{createForm.matchId ? "Select category" : "Select a match first"}</option>{categoryOptionsForCreate.map((category) => <option key={category.id} value={category.id}>{category.displayName}</option>)}</select></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2"><Label htmlFor="pool-stand">Stand name</Label><Input id="pool-stand" required maxLength={250} value={createForm.standName} onChange={(event) => setCreateForm({ ...createForm, standName: event.target.value })} /></div>
+              <div className="space-y-2"><Label htmlFor="pool-block">Block</Label><Input id="pool-block" maxLength={100} value={createForm.blockName} onChange={(event) => setCreateForm({ ...createForm, blockName: event.target.value })} /></div>
+              <div className="space-y-2"><Label htmlFor="pool-gate">Gate</Label><Input id="pool-gate" maxLength={100} value={createForm.gateName} onChange={(event) => setCreateForm({ ...createForm, gateName: event.target.value })} /></div>
+              <div className="space-y-2"><Label htmlFor="pool-format">Ticket format</Label><select id="pool-format" className={selectClassName} value={createForm.ticketFormat} onChange={(event) => setCreateForm({ ...createForm, ticketFormat: event.target.value })}><option value="PHYSICAL">Physical</option><option value="DIGITAL">Digital</option><option value="BOTH">Both</option></select></div>
+              <div className="space-y-2"><Label htmlFor="pool-value">Face value (₹)</Label><Input id="pool-value" inputMode="decimal" value={createForm.faceValue} onChange={(event) => setCreateForm({ ...createForm, faceValue: event.target.value })} /></div>
+              <div className="space-y-2"><Label htmlFor="pool-total">Total quantity</Label><Input id="pool-total" type="number" min={1} required value={createForm.totalQuantity} onChange={(event) => setCreateForm({ ...createForm, totalQuantity: event.target.value })} /></div>
+            </div>
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={createSaving}>Cancel</Button><Button type="submit" disabled={createSaving}>{createSaving ? "Creating…" : "Create pool"}</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !deleteSaving) setDeleting(null) }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Delete inventory pool</DialogTitle><DialogDescription>Delete {deleting?.standName} ({deleting?.ticketCategory.displayName})? Pools with allocation or serial history cannot be deleted.</DialogDescription></DialogHeader>
+          {deleteError && <p role="alert" className="text-sm text-destructive">{deleteError}</p>}
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setDeleting(null)} disabled={deleteSaving}>Cancel</Button><Button type="button" variant="destructive" onClick={deleteInventory} disabled={deleteSaving}>{deleteSaving ? "Deleting…" : "Delete pool"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </MainLayout>

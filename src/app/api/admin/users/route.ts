@@ -7,7 +7,7 @@ import { withApiHandler } from '@/lib/api'
 const createUserSchema = z.object({
   email: z.string().trim().email().max(320).transform((value) => value.toLowerCase()),
   fullName: z.string().trim().min(2).max(150),
-  password: z.string().min(16).max(128),
+  password: z.string().min(8).max(128),
   roleId: z.string().min(1),
   designation: z.string().trim().max(150).optional(),
   department: z.string().trim().max(150).optional(),

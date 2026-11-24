@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import type { Prisma } from "@prisma/client"
-import { AlertCircle, Building, Download, Mail, Phone, Plus, Search, Upload, Users } from "lucide-react"
+import { AlertCircle, Building, Download, Mail, Pencil, Phone, Plus, Search, Trash2, Upload, Users } from "lucide-react"
 import { z } from "zod"
 import { useSession } from "@/hooks/use-session"
 import { MainLayout } from "@/components/layout/main-layout"
@@ -66,8 +66,11 @@ export default function RequestersPage() {
   const [formError, setFormError] = React.useState("")
   const [saving, setSaving] = React.useState(false)
   const [notice, setNotice] = React.useState("")
+  const [editing, setEditing] = React.useState<RequesterListItem | null>(null)
+  const [deleting, setDeleting] = React.useState<RequesterListItem | null>(null)
   const canRead = Boolean(user?.permissions.includes("requests:read"))
   const canWrite = Boolean(user?.permissions.includes("requests:write"))
+  const canDelete = Boolean(user?.roles?.includes("SUPER_ADMIN"))
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => { setSearch(searchInput.trim()); setOffset(0) }, 350)
@@ -129,6 +132,66 @@ export default function RequestersPage() {
     }
   }
 
+  const openEdit = (requester: RequesterListItem) => {
+    setEditing(requester)
+    setForm({
+      fullName: requester.fullName, mobileNumber: requester.mobileNumber, email: requester.email || "",
+      designation: requester.designation || "", organisationId: requester.organisationId || "", organisationName: "",
+      requesterCategory: requester.requesterCategory, protocolLevel: String(requester.protocolLevel),
+      contactPreference: requester.contactPreference as RequesterForm["contactPreference"],
+      specialInstructions: requester.specialInstructions || "",
+    })
+    setFormError("")
+    setDialogOpen(true)
+  }
+
+  const saveRequester = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setFormError("")
+    const parsed = formSchema.safeParse(form)
+    if (!parsed.success) { setFormError(parsed.error.issues[0]?.message || "Check the requester details"); return }
+    if (!editing && parsed.data.contactPreference === "EMAIL" && !parsed.data.email) { setFormError("Email is required when email is the preferred contact method"); return }
+    setSaving(true)
+    try {
+      const payload = editing
+        ? { fullName: parsed.data.fullName, mobileNumber: parsed.data.mobileNumber, email: parsed.data.email || null, designation: parsed.data.designation || null, organisationId: parsed.data.organisationId || null, requesterCategory: parsed.data.requesterCategory, protocolLevel: Number(parsed.data.protocolLevel), contactPreference: parsed.data.contactPreference, specialInstructions: parsed.data.specialInstructions || null }
+        : { ...parsed.data, protocolLevel: Number(parsed.data.protocolLevel), organisationId: parsed.data.organisationId || undefined, organisationName: parsed.data.organisationId ? undefined : parsed.data.organisationName, email: parsed.data.email || undefined }
+      const result = await fetch(editing ? `/api/requesters/${encodeURIComponent(editing.id)}` : "/api/requesters", {
+        method: editing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const body: unknown = await result.json()
+      if (!result.ok) throw new Error(apiError(body, editing ? "Unable to update requester" : "Unable to create requester"))
+      setDialogOpen(false)
+      setForm(initialForm)
+      setEditing(null)
+      setNotice(`${parsed.data.fullName} was ${editing ? "updated" : "added to the requester directory"}.`)
+      setReloadKey((key) => key + 1)
+    } catch (saveError: unknown) {
+      setFormError(errorMessage(saveError))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const deleteRequester = async () => {
+    if (!deleting) return
+    setSaving(true)
+    try {
+      const result = await fetch(`/api/requesters/${encodeURIComponent(deleting.id)}`, { method: "DELETE" })
+      const body: unknown = await result.json()
+      if (!result.ok) throw new Error(apiError(body, "Unable to delete requester"))
+      setDeleting(null)
+      setNotice(`${deleting.fullName} was deleted.`)
+      setReloadKey((key) => key + 1)
+    } catch (deleteError: unknown) {
+      setFormError(errorMessage(deleteError))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -160,7 +223,7 @@ export default function RequestersPage() {
                   <TableCell className="text-right font-medium">{requester._count.requests}</TableCell><TableCell className="text-right font-medium">{requester.totalTickets}</TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{requester.latestRequest ? formatDate(requester.latestRequest.createdAt) : "Never"}</TableCell>
                   <TableCell><Badge variant={requester.isActive ? "success" : "secondary"}>{requester.isActive ? "Active" : "Inactive"}</Badge>{requester.isVerified && <span className="ml-1 text-xs text-muted-foreground">Verified</span>}</TableCell>
-                  {canWrite && <TableCell><Button variant="ghost" size="sm" asChild><Link href={`/requests/new?requester=${requester.id}`}><Plus className="mr-2 h-4 w-4" />New request</Link></Button></TableCell>}
+                  {canWrite && <TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="sm" asChild><Link href={`/requests/new?requester=${requester.id}`}><Plus className="mr-1 h-3.5 w-3.5" />New request</Link></Button><Button variant="ghost" size="icon" aria-label={`Edit ${requester.fullName}`} onClick={() => openEdit(requester)}><Pencil className="h-4 w-4" /></Button>{canDelete && <Button variant="ghost" size="icon" aria-label={`Delete ${requester.fullName}`} onClick={() => { setFormError(""); setDeleting(requester) }}><Trash2 className="h-4 w-4 text-destructive" /></Button>}</div></TableCell>}
                 </TableRow>
               })}</TableBody>
             </Table></div> : null}
@@ -169,17 +232,24 @@ export default function RequestersPage() {
         </>}
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!saving) setDialogOpen(open) }}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>Add a requester</DialogTitle><DialogDescription>Create a contact that can be selected on new ticket requests.</DialogDescription></DialogHeader>
-          <form className="space-y-4" onSubmit={createRequester}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!saving) { setDialogOpen(open); if (!open) { setEditing(null); setForm(initialForm) } } }}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{editing ? "Edit requester" : "Add a requester"}</DialogTitle><DialogDescription>{editing ? "Update this contact's directory details." : "Create a contact that can be selected on new ticket requests."}</DialogDescription></DialogHeader>
+          <form className="space-y-4" onSubmit={saveRequester}>
             {formError && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{formError}</AlertDescription></Alert>}
             <div className="grid gap-4 sm:grid-cols-2"><Field label="Full name" id="requester-full-name" required><Input id="requester-full-name" autoComplete="name" value={form.fullName} onChange={(event) => updateForm("fullName", event.target.value)} required maxLength={150} /></Field><Field label="Mobile number" id="requester-mobile" required><Input id="requester-mobile" type="tel" autoComplete="tel" placeholder="+91 98765 43210" value={form.mobileNumber} onChange={(event) => updateForm("mobileNumber", event.target.value)} required /></Field><Field label="Email" id="requester-email"><Input id="requester-email" type="email" autoComplete="email" value={form.email} onChange={(event) => updateForm("email", event.target.value)} /></Field><Field label="Designation" id="requester-designation"><Input id="requester-designation" value={form.designation} onChange={(event) => updateForm("designation", event.target.value)} maxLength={150} /></Field></div>
             <div className="space-y-2"><Label htmlFor="requester-organisation">Existing organisation</Label><select id="requester-organisation" className={selectClassName} value={form.organisationId} onChange={(event) => updateForm("organisationId", event.target.value)}><option value="">Create or enter an organisation below</option>{data.organisations.map((organisation) => <option key={organisation.id} value={organisation.id}>{organisation.name}</option>)}</select></div>
             {!form.organisationId && <Field label="New organisation name" id="requester-organisation-name" required><Input id="requester-organisation-name" value={form.organisationName} onChange={(event) => updateForm("organisationName", event.target.value)} maxLength={200} required /></Field>}
             <div className="grid gap-4 sm:grid-cols-3"><Field label="Category" id="requester-new-category" required><select id="requester-new-category" className={selectClassName} value={form.requesterCategory} onChange={(event) => updateForm("requesterCategory", event.target.value)} required><option value="">Select</option>{categories.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}</select></Field><Field label="Protocol level" id="requester-protocol"><Input id="requester-protocol" type="number" min={0} max={10} value={form.protocolLevel} onChange={(event) => updateForm("protocolLevel", event.target.value)} /></Field><Field label="Preferred contact" id="requester-contact"><select id="requester-contact" className={selectClassName} value={form.contactPreference} onChange={(event) => updateForm("contactPreference", event.target.value as RequesterForm["contactPreference"])}><option value="PHONE">Phone</option><option value="WHATSAPP">WhatsApp</option><option value="EMAIL">Email</option></select></Field></div>
             <div className="space-y-2"><Label htmlFor="requester-instructions">Special instructions</Label><Textarea id="requester-instructions" value={form.specialInstructions} onChange={(event) => updateForm("specialInstructions", event.target.value)} maxLength={2000} /></div>
-            <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Creating…" : "Create requester"}</Button></div>
+            <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving…" : editing ? "Save changes" : "Create requester"}</Button></div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !saving) setDeleting(null) }}>
+        <DialogContent><DialogHeader><DialogTitle>Delete requester</DialogTitle><DialogDescription>Delete {deleting?.fullName}? Requesters with request history cannot be deleted — deactivate them instead.</DialogDescription></DialogHeader>
+          {formError && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{formError}</AlertDescription></Alert>}
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setDeleting(null)} disabled={saving}>Cancel</Button><Button variant="destructive" onClick={deleteRequester} disabled={saving}>{saving ? "Deleting…" : "Delete requester"}</Button></div>
         </DialogContent>
       </Dialog>
     </MainLayout>
