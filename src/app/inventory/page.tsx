@@ -39,6 +39,10 @@ export default function InventoryPage() {
   const [createSaving, setCreateSaving] = useState(false)
   const [matches, setMatches] = useState<{ id: string; title: string }[]>([])
   const [categoryOptionsForCreate, setCategories] = useState<{ id: string; displayName: string }[]>([])
+  const [categoryOpen, setCategoryOpen] = useState(false)
+  const [categoryError, setCategoryError] = useState("")
+  const [categorySaving, setCategorySaving] = useState(false)
+  const [categoryForm, setCategoryForm] = useState({ displayName: "", pricingTier: "0", sortOrder: "0", colorCode: "#1e3a8a" })
   const [createForm, setCreateForm] = useState({ matchId: "", ticketCategoryId: "", standName: "", blockName: "", gateName: "", ticketFormat: "PHYSICAL", faceValue: "", totalQuantity: "" })
   const canAdjust = Boolean(user?.permissions.includes("inventory:adjust"))
   const canWrite = Boolean(user?.permissions.includes("inventory:write"))
@@ -64,6 +68,48 @@ export default function InventoryPage() {
       const body = await response.json() as { categories?: { id: string; displayName: string }[] }
       setCategories(body.categories || [])
     } catch { setCategories([]) }
+  }
+
+  function openCategories() {
+    setCategoryError("")
+    setCategoryForm({ displayName: "", pricingTier: "0", sortOrder: String(categoryOptionsForCreate.length), colorCode: "#1e3a8a" })
+    if (matches.length === 0) {
+      fetch("/api/matches?limit=100", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((body: { matches?: { id: string; title: string }[] }) => setMatches(body.matches || []))
+        .catch(() => setMatches([]))
+    }
+    setCategoryOpen(true)
+  }
+
+  async function selectCategoryMatch(matchId: string) {
+    await loadCategories(matchId)
+  }
+
+  async function createCategory(event: React.FormEvent) {
+    event.preventDefault()
+    if (!createForm.matchId) { setCategoryError("Select a match first"); return }
+    setCategorySaving(true)
+    setCategoryError("")
+    try {
+      const response = await fetch(`/api/matches/${encodeURIComponent(createForm.matchId)}/categories`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: categoryForm.displayName, displayName: categoryForm.displayName,
+          pricingTier: Number(categoryForm.pricingTier), sortOrder: Number(categoryForm.sortOrder),
+          colorCode: categoryForm.colorCode,
+        }),
+      })
+      const body = await response.json() as { error?: string; category?: { id: string; displayName: string } }
+      if (!response.ok) throw new Error(body.error || "Unable to create ticket category")
+      await loadCategories(createForm.matchId)
+      if (body.category) setCreateForm((current) => ({ ...current, ticketCategoryId: body.category!.id }))
+      setCategoryOpen(false)
+    } catch (cause: unknown) {
+      setCategoryError(cause instanceof Error ? cause.message : "Unable to create ticket category")
+    } finally {
+      setCategorySaving(false)
+    }
   }
 
   async function createInventory(event: React.FormEvent) {
@@ -169,7 +215,7 @@ export default function InventoryPage() {
           description="Ticket stock and movement by match, category, and seating location."
           onRefresh={retry}
           refreshing={loading}
-          actions={canWrite ? <Button size="sm" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />New pool</Button> : undefined}
+          actions={canWrite ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={openCategories}>Ticket categories</Button><Button size="sm" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />New pool</Button></div> : undefined}
         />
         {loading && !summary ? <MetricSkeleton /> : error ? null : summary && (
           <section aria-labelledby="inventory-totals">
@@ -291,6 +337,27 @@ export default function InventoryPage() {
             </div>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={createSaving}>Cancel</Button><Button type="submit" disabled={createSaving}>{createSaving ? "Creating…" : "Create pool"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={categoryOpen} onOpenChange={(open) => { if (!categorySaving) setCategoryOpen(open) }}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Ticket categories</DialogTitle><DialogDescription>Add ticket categories for a match. They are then available when creating inventory pools and requests.</DialogDescription></DialogHeader>
+          {categoryError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{categoryError}</p>}
+          <div className="space-y-2"><Label htmlFor="category-match">Match</Label><select id="category-match" className={selectClassName} value={createForm.matchId} onChange={(event) => selectCategoryMatch(event.target.value)}><option value="">Select match</option>{matches.map((match) => <option key={match.id} value={match.id}>{match.title}</option>)}</select></div>
+          <div className="max-h-48 overflow-y-auto rounded-md border">
+            {categoryOptionsForCreate.length === 0 ? <p className="p-3 text-sm text-muted-foreground">{createForm.matchId ? "No categories yet. Add the first one below." : "Select a match to see its categories."}</p> : <ul className="divide-y">{categoryOptionsForCreate.map((category) => <li key={category.id} className="p-3 text-sm font-medium">{category.displayName}</li>)}</ul>}
+          </div>
+          <form onSubmit={createCategory} className="space-y-3 rounded-md border p-3">
+            <p className="text-sm font-medium">Add category</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2"><Label htmlFor="category-name">Display name</Label><Input id="category-name" required minLength={2} maxLength={100} placeholder="e.g. Premium" value={categoryForm.displayName} onChange={(event) => setCategoryForm({ ...categoryForm, displayName: event.target.value })} disabled={categorySaving} /></div>
+              <div className="space-y-2"><Label htmlFor="category-tier">Pricing tier</Label><Input id="category-tier" type="number" min={0} max={10} value={categoryForm.pricingTier} onChange={(event) => setCategoryForm({ ...categoryForm, pricingTier: event.target.value })} disabled={categorySaving} /></div>
+              <div className="space-y-2"><Label htmlFor="category-order">Sort order</Label><Input id="category-order" type="number" min={0} value={categoryForm.sortOrder} onChange={(event) => setCategoryForm({ ...categoryForm, sortOrder: event.target.value })} disabled={categorySaving} /></div>
+              <div className="space-y-2"><Label htmlFor="category-colour">Colour</Label><Input id="category-colour" type="color" className="h-10 p-1" value={categoryForm.colorCode} onChange={(event) => setCategoryForm({ ...categoryForm, colorCode: event.target.value })} disabled={categorySaving} /></div>
+            </div>
+            <Button type="submit" size="sm" disabled={categorySaving || !createForm.matchId}>{categorySaving ? "Adding…" : "Add category"}</Button>
+          </form>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setCategoryOpen(false)} disabled={categorySaving}>Close</Button></DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !deleteSaving) setDeleting(null) }}>
