@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
 FROM node:20-alpine AS base
+# Install OpenSSL before dependency installation so Prisma detects
+# and prepares the correct Linux engine during the build.
+RUN apk add --no-cache openssl
 WORKDIR /app
 
 FROM base AS deps
@@ -18,14 +21,17 @@ RUN npm run build
 
 FROM base AS migrations
 ENV NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
-COPY prisma ./prisma
+# The migration runs as node, so give that user ownership of the files.
+# This also permits Prisma to manage its engine files if necessary.
+COPY --from=deps --chown=node:node /app/node_modules ./node_modules
+COPY --chown=node:node prisma ./prisma
 USER node
 ENTRYPOINT ["node", "node_modules/prisma/build/index.js"]
 CMD ["migrate", "deploy", "--schema", "prisma/schema.prisma"]
 
 FROM node:20-alpine AS runner
-RUN apk add --no-cache dumb-init
+# dumb-init handles process signals; OpenSSL is required by Prisma.
+RUN apk add --no-cache dumb-init openssl
 WORKDIR /app
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
