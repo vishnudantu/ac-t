@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { CheckCircle2, Layers3, Pencil, Shield } from "lucide-react"
+import { CheckCircle2, Layers3, Pencil, Plus, Shield } from "lucide-react"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -91,6 +91,12 @@ export default function QuotasPage() {
   const [editForm, setEditForm] = useState({ displayName: "", description: "", isActive: true })
   const [editError, setEditError] = useState("")
   const [editSaving, setEditSaving] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createError, setCreateError] = useState("")
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createForm, setCreateForm] = useState({ matchId: "", name: "", displayName: "", description: "" })
+  const [quotaCategories, setQuotaCategories] = useState<{ id: string; displayName: string }[]>([])
+  const [quotaAllocations, setQuotaAllocations] = useState<{ ticketCategoryId: string; allocatedQuantity: string }[]>([])
   const canWrite = Boolean(user?.permissions.includes("quotas:write"))
   const { data, loading, error, retry } = useOperationData(
     (signal) => getQuotas(signal, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, matchId }),
@@ -103,6 +109,45 @@ export default function QuotasPage() {
       .then((body: { matches?: { id: string; title: string }[] }) => setMatches(body.matches || []))
       .catch(() => setMatches([]))
   })
+
+  async function openCreate() {
+    setCreateError("")
+    setCreateForm({ matchId: matchId === "all" ? "" : matchId, name: "", displayName: "", description: "" })
+    setQuotaAllocations([])
+    setCreateOpen(true)
+  }
+
+  async function loadQuotaCategories(selectedMatchId: string) {
+    setCreateForm((current) => ({ ...current, matchId: selectedMatchId }))
+    setQuotaAllocations([])
+    if (!selectedMatchId) { setQuotaCategories([]); return }
+    try {
+      const response = await fetch(`/api/matches/${encodeURIComponent(selectedMatchId)}/categories`, { cache: "no-store" })
+      const body = await response.json() as { categories?: { id: string; displayName: string }[] }
+      setQuotaCategories(body.categories || [])
+    } catch { setQuotaCategories([]) }
+  }
+
+  async function createQuota(event: React.FormEvent) {
+    event.preventDefault()
+    setCreateSaving(true)
+    setCreateError("")
+    try {
+      const response = await fetch("/api/quotas", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          matchId: createForm.matchId, name: createForm.name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_"),
+          displayName: createForm.displayName, description: createForm.description || null,
+          allocations: quotaAllocations.filter((item) => item.ticketCategoryId && Number(item.allocatedQuantity) > 0)
+            .map((item) => ({ ticketCategoryId: item.ticketCategoryId, allocatedQuantity: Number(item.allocatedQuantity) })),
+        }),
+      })
+      const body = await response.json() as { error?: string; details?: { message: string }[] }
+      if (!response.ok) throw new Error(body.details?.[0]?.message || body.error || "Unable to create quota")
+      setCreateOpen(false)
+      retry()
+    } catch (cause: unknown) { setCreateError(cause instanceof Error ? cause.message : "Unable to create quota") } finally { setCreateSaving(false) }
+  }
 
   function openEdit(quota: Quota) {
     setEditing(quota)
@@ -152,6 +197,7 @@ export default function QuotasPage() {
           description="Stakeholder quotas, category allocations, and recorded consumption."
           onRefresh={retry}
           refreshing={loading}
+          actions={canWrite ? <Button size="sm" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />New quota</Button> : undefined}
         />
         {loading && !data ? <MetricSkeleton count={3} /> : error ? null : data && (
           <section aria-labelledby="quota-totals">
@@ -202,6 +248,30 @@ export default function QuotasPage() {
           )}
         </section>
       </div>
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!createSaving) setCreateOpen(open) }}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader><DialogTitle>New quota pool</DialogTitle><DialogDescription>Create a stakeholder quota and allocate ticket quantities per category for a match.</DialogDescription></DialogHeader>
+          <form onSubmit={createQuota} className="space-y-4">
+            {createError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{createError}</p>}
+            <div className="space-y-2"><Label htmlFor="quota-match">Match</Label><select id="quota-match" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" required value={createForm.matchId} onChange={(event) => loadQuotaCategories(event.target.value)} disabled={createSaving}><option value="">Select match</option>{matches.map((match) => <option key={match.id} value={match.id}>{match.title}</option>)}</select></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2"><Label htmlFor="quota-code">Quota code</Label><Input id="quota-code" required minLength={2} maxLength={100} placeholder="ACA_OFFICIALS" value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value.toUpperCase() })} disabled={createSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="quota-display">Display name</Label><Input id="quota-display" required minLength={2} maxLength={500} placeholder="ACA Officials" value={createForm.displayName} onChange={(event) => setCreateForm({ ...createForm, displayName: event.target.value })} disabled={createSaving} /></div>
+            </div>
+            <div className="space-y-2"><Label htmlFor="quota-desc">Description</Label><Input id="quota-desc" maxLength={2000} value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} disabled={createSaving} /></div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between"><p className="text-sm font-medium">Category allocations</p><Button type="button" variant="outline" size="sm" onClick={() => setQuotaAllocations([...quotaAllocations, { ticketCategoryId: "", allocatedQuantity: "0" }])} disabled={createSaving || !createForm.matchId}><Plus className="mr-1 h-3.5 w-3.5" />Add category</Button></div>
+              {quotaAllocations.length === 0 && <p className="text-xs text-muted-foreground">Select a match, then add categories with allocated quantities.</p>}
+              {quotaAllocations.map((allocation, index) => <div key={index} className="grid grid-cols-[1fr_120px_auto] items-end gap-2">
+                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={allocation.ticketCategoryId} onChange={(event) => setQuotaAllocations(quotaAllocations.map((current, position) => position === index ? { ...current, ticketCategoryId: event.target.value } : current))} disabled={createSaving}><option value="">Select category</option>{quotaCategories.map((category) => <option key={category.id} value={category.id}>{category.displayName}</option>)}</select>
+                <Input type="number" min={1} value={allocation.allocatedQuantity} onChange={(event) => setQuotaAllocations(quotaAllocations.map((current, position) => position === index ? { ...current, allocatedQuantity: event.target.value } : current))} disabled={createSaving} />
+                <Button type="button" variant="ghost" size="icon" aria-label="Remove allocation" onClick={() => setQuotaAllocations(quotaAllocations.filter((_, position) => position !== index))} disabled={createSaving}>×</Button>
+              </div>)}
+            </div>
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={createSaving}>Cancel</Button><Button type="submit" disabled={createSaving}>{createSaving ? "Creating…" : "Create quota"}</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(editing)} onOpenChange={(open) => { if (!open && !editSaving) setEditing(null) }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Edit quota pool</DialogTitle><DialogDescription>Update “{editing?.displayName}” for {editing?.match.title}.</DialogDescription></DialogHeader>

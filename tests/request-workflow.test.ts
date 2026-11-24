@@ -121,3 +121,22 @@ describe('request editing and deletion', () => {
     expect(prismaMock.request.delete).toHaveBeenCalledWith({ where: { id: 'request-1' } })
   })
 })
+
+describe('request detail route', () => {
+  it('returns the full request for an authorised user', async () => {
+    const { GET } = await import('../src/app/api/requests/[id]/route')
+    prismaMock.request.findUnique.mockResolvedValue({ id: 'request-1', requestNumber: 'REQ-2026-0001' })
+    const response = await GET(new NextRequest('http://localhost/api/requests/request-1'), context('request-1'))
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.request.id).toBe('request-1')
+  })
+
+  it('returns 404 and a JSON body when the request does not exist', async () => {
+    const { GET } = await import('../src/app/api/requests/[id]/route')
+    prismaMock.request.findUnique.mockResolvedValue(null)
+    const response = await GET(new NextRequest('http://localhost/api/requests/missing'), context('missing'))
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toHaveProperty('error')
+  })
+})

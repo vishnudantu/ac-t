@@ -7,6 +7,28 @@ import { withApiHandler } from '@/lib/api'
 interface Context { params: Promise<{ id: string }> }
 const requestIdSchema = z.string().trim().min(1).max(100)
 
+export const GET = withApiHandler<Context>(async (_request, session, context) => {
+  if (!context) return NextResponse.json({ error: 'Request ID required' }, { status: 400 })
+  if (!hasPermission(session.permissions, 'requests:read')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const id = requestIdSchema.parse((await context.params).id)
+  const requestRecord = await prisma.request.findUnique({
+    where: { id },
+    include: {
+      match: { include: { venue: { select: { id: true, name: true, city: true, state: true } } } },
+      requester: { include: { organisation: { select: { id: true, name: true, category: true } } } },
+      createdBy: { select: { id: true, fullName: true, email: true } },
+      assignedTo: { select: { id: true, fullName: true, email: true } },
+      items: {
+        include: { ticketCategory: { select: { id: true, name: true, displayName: true } } },
+        orderBy: { ticketCategory: { sortOrder: 'asc' } },
+      },
+      _count: { select: { attachments: true, comments: true, approvalSteps: true } },
+    },
+  })
+  if (!requestRecord) return NextResponse.json({ error: 'Request not found' }, { status: 404 })
+  return NextResponse.json({ request: requestRecord })
+})
+
 const requestUpdateSchema = z.object({
   priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'PROTOCOL']).optional(),
   sourceReference: z.string().trim().max(200).nullish(),
