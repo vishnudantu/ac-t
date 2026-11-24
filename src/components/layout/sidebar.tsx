@@ -72,7 +72,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         </ul>
       </nav>
       <div className="shrink-0 border-t p-4">
-        {!collapsed && <div className="mb-3 min-w-0"><p className="truncate text-sm font-medium">{user?.fullName || "Signed-in user"}</p><p className="truncate text-xs text-muted-foreground">{user?.email || ""}</p></div>}
+        {!collapsed && <div className="mb-3 min-w-0"><Link href="/profile" onClick={onClose} className="block rounded-md p-1 -m-1 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title="Profile & password"><p className="truncate text-sm font-medium">{user?.fullName || "Signed-in user"}</p><p className="truncate text-xs text-muted-foreground">{user?.email || ""}</p></Link></div>}
         <LogoutButton collapsed={collapsed} />
       </div>
     </aside>

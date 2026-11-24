@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Plus, UserCog } from "lucide-react"
+import { Plus, UserCog, KeyRound } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/operations/page-header"
 import { DataState, EmptyState, TableSkeleton } from "@/components/operations/data-state"
 import { SearchInput } from "@/components/operations/list-controls"
 import { formatDate, formatDateTime } from "@/lib/utils"
+import { useToast } from "@/hooks/use-toast"
 
 interface Role { id: string; name: string; displayName: string }
 interface User { id: string; email: string; fullName: string; designation: string | null; department: string | null; isActive: boolean; mfaEnabled: boolean; lastLoginAt: string | null; createdAt: string; roleAssignments: { role: Role }[] }
@@ -23,6 +24,7 @@ const initialForm = { fullName: "", email: "", password: "", roleId: "", designa
 
 export default function AdminUsersPage() {
   const { user, loading: sessionLoading } = useSession()
+  const { toast } = useToast()
   const [users, setUsers] = React.useState<User[]>([])
   const [roles, setRoles] = React.useState<Role[]>([])
   const [search, setSearch] = React.useState("")
@@ -32,8 +34,13 @@ export default function AdminUsersPage() {
   const [form, setForm] = React.useState(initialForm)
   const [saving, setSaving] = React.useState(false)
   const [attempt, setAttempt] = React.useState(0)
+  const [resetTarget, setResetTarget] = React.useState<User | null>(null)
+  const [resetForm, setResetForm] = React.useState({ newPassword: "", confirmPassword: "" })
+  const [resetting, setResetting] = React.useState(false)
+  const [resetError, setResetError] = React.useState("")
   const canRead = Boolean(user?.permissions.includes("users:read"))
-  const canWrite = Boolean(user?.permissions.includes("users:write") && user?.permissions.includes("users:assign_roles"))
+  const canCreateUser = Boolean(user?.permissions.includes("users:write") && user?.permissions.includes("users:assign_roles"))
+  const canResetPassword = Boolean(user?.permissions.includes("users:write"))
 
   React.useEffect(() => {
     if (sessionLoading || !canRead) { if (!sessionLoading) setLoading(false); return }
@@ -65,13 +72,45 @@ export default function AdminUsersPage() {
     } catch (cause: unknown) { setError(cause instanceof Error ? cause.message : "Unable to create user") } finally { setSaving(false) }
   }
 
+  function openReset(target: User) {
+    setResetTarget(target)
+    setResetForm({ newPassword: "", confirmPassword: "" })
+    setResetError("")
+  }
+
+  async function resetUserPassword(event: React.FormEvent) {
+    event.preventDefault()
+    if (!resetTarget) return
+    if (resetForm.newPassword !== resetForm.confirmPassword) {
+      setResetError("Passwords do not match")
+      return
+    }
+    setResetting(true)
+    setResetError("")
+    try {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(resetTarget.id)}/reset-password`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ newPassword: resetForm.newPassword }),
+      })
+      const body = await response.json() as { error?: string; details?: { message: string }[] }
+      if (!response.ok) throw new Error(body.details?.[0]?.message || body.error || "Unable to reset password")
+      toast({ title: "Password reset", description: `${resetTarget.fullName} has been signed out of all sessions.` })
+      setResetTarget(null)
+      setResetForm({ newPassword: "", confirmPassword: "" })
+    } catch (cause: unknown) {
+      setResetError(cause instanceof Error ? cause.message : "Unable to reset password")
+    } finally {
+      setResetting(false)
+    }
+  }
+
   return <MainLayout><div className="space-y-5">
-    <PageHeader title="User management" description="Manage staff accounts and global role assignments." onRefresh={() => setAttempt((value) => value + 1)} refreshing={loading} actions={canWrite ? <Button size="sm" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New user</Button> : undefined} />
+    <PageHeader title="User management" description="Manage staff accounts and global role assignments." onRefresh={() => setAttempt((value) => value + 1)} refreshing={loading} actions={canCreateUser ? <Button size="sm" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New user</Button> : undefined} />
     <Card className="shadow-none"><CardContent className="p-4"><SearchInput value={search} onChange={setSearch} label="Search users" placeholder="Search by name, email, designation, or department…" /></CardContent></Card>
     {error && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
     {!sessionLoading && !canRead ? <p role="alert" className="text-destructive">Your account does not have permission to manage users.</p> : <DataState loading={loading} error={error} onRetry={() => setAttempt((value) => value + 1)} skeleton={<Card><TableSkeleton /></Card>}>
-      {filtered.length === 0 ? <Card><EmptyState icon={<UserCog className="h-10 w-10" />} title="No users found" description={search ? "No users match your search." : "Create the first staff account."} /></Card> : <Card className="shadow-none"><Table><TableHeader><TableRow><TableHead>User</TableHead><TableHead>Department</TableHead><TableHead>Roles</TableHead><TableHead>Status</TableHead><TableHead>Last login</TableHead><TableHead>Created</TableHead></TableRow></TableHeader><TableBody>{filtered.map((entry) => <TableRow key={entry.id}><TableCell><div className="font-medium">{entry.fullName}</div><div className="text-xs text-muted-foreground">{entry.email}</div><div className="text-xs">{entry.designation || "—"}</div></TableCell><TableCell>{entry.department || "—"}</TableCell><TableCell><div className="flex max-w-64 flex-wrap gap-1">{entry.roleAssignments.map(({ role }) => <Badge key={role.id} variant="secondary">{role.displayName}</Badge>)}</div></TableCell><TableCell><Badge variant={entry.isActive ? "default" : "secondary"}>{entry.isActive ? "Active" : "Inactive"}</Badge></TableCell><TableCell className="text-xs">{entry.lastLoginAt ? formatDateTime(entry.lastLoginAt) : "Never"}</TableCell><TableCell className="text-xs">{formatDate(entry.createdAt)}</TableCell></TableRow>)}</TableBody></Table></Card>}
+      {filtered.length === 0 ? <Card><EmptyState icon={<UserCog className="h-10 w-10" />} title="No users found" description={search ? "No users match your search." : "Create the first staff account."} /></Card> : <Card className="shadow-none"><Table><TableHeader><TableRow><TableHead>User</TableHead><TableHead>Department</TableHead><TableHead>Roles</TableHead><TableHead>Status</TableHead><TableHead>Last login</TableHead><TableHead>Created</TableHead>{canResetPassword && <TableHead className="text-right">Actions</TableHead>}</TableRow></TableHeader><TableBody>{filtered.map((entry) => <TableRow key={entry.id}><TableCell><div className="font-medium">{entry.fullName}</div><div className="text-xs text-muted-foreground">{entry.email}</div><div className="text-xs">{entry.designation || "—"}</div></TableCell><TableCell>{entry.department || "—"}</TableCell><TableCell><div className="flex max-w-64 flex-wrap gap-1">{entry.roleAssignments.map(({ role }) => <Badge key={role.id} variant="secondary">{role.displayName}</Badge>)}</div></TableCell><TableCell><Badge variant={entry.isActive ? "default" : "secondary"}>{entry.isActive ? "Active" : "Inactive"}</Badge></TableCell><TableCell className="text-xs">{entry.lastLoginAt ? formatDateTime(entry.lastLoginAt) : "Never"}</TableCell><TableCell className="text-xs">{formatDate(entry.createdAt)}</TableCell>{canResetPassword && <TableCell className="text-right"><Button type="button" variant="outline" size="sm" onClick={() => openReset(entry)}><KeyRound className="mr-1.5 h-3.5 w-3.5" />Reset password</Button></TableCell>}</TableRow>)}</TableBody></Table></Card>}
     </DataState>}
     <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>Create user</DialogTitle><DialogDescription>Create a staff account with one global role. The password is used only for initial account setup.</DialogDescription></DialogHeader><form onSubmit={createUser} className="space-y-4"><div className="space-y-2"><Label htmlFor="user-name">Full name</Label><Input id="user-name" required value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} /></div><div className="space-y-2"><Label htmlFor="user-email">Email</Label><Input id="user-email" type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></div><div className="space-y-2"><Label htmlFor="user-password">Temporary password (minimum 16 characters)</Label><Input id="user-password" type="password" minLength={16} required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></div><div className="space-y-2"><Label htmlFor="user-role">Global role</Label><select id="user-role" className={selectClassName} required value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}><option value="">Select role</option>{roles.map((role) => <option key={role.id} value={role.id}>{role.displayName}</option>)}</select></div><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="user-designation">Designation</Label><Input id="user-designation" value={form.designation} onChange={(event) => setForm({ ...form, designation: event.target.value })} /></div><div className="space-y-2"><Label htmlFor="user-department">Department</Label><Input id="user-department" value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })} /></div></div><DialogFooter><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Creating…" : "Create user"}</Button></DialogFooter></form></DialogContent></Dialog>
+    <Dialog open={Boolean(resetTarget)} onOpenChange={(open) => { if (!open) setResetTarget(null) }}><DialogContent><DialogHeader><DialogTitle>Reset password</DialogTitle><DialogDescription>Set a new password for {resetTarget?.fullName}. Their existing sessions will be revoked; share the new password through a secure channel.</DialogDescription></DialogHeader><form onSubmit={resetUserPassword} className="space-y-4">{resetError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{resetError}</p>}<div className="space-y-2"><Label htmlFor="reset-password">New password</Label><Input id="reset-password" type="password" required minLength={16} maxLength={128} autoComplete="new-password" value={resetForm.newPassword} onChange={(event) => setResetForm({ ...resetForm, newPassword: event.target.value })} disabled={resetting} /><p className="text-xs text-muted-foreground">At least 16 characters. Never reuse an existing password.</p></div><div className="space-y-2"><Label htmlFor="reset-confirm">Confirm new password</Label><Input id="reset-confirm" type="password" required minLength={16} maxLength={128} autoComplete="new-password" value={resetForm.confirmPassword} onChange={(event) => setResetForm({ ...resetForm, confirmPassword: event.target.value })} disabled={resetting} /></div><DialogFooter><Button type="button" variant="outline" onClick={() => setResetTarget(null)} disabled={resetting}>Cancel</Button><Button type="submit" disabled={resetting}>{resetting ? "Resetting…" : "Reset password"}</Button></DialogFooter></form></DialogContent></Dialog>
   </div></MainLayout>
 }

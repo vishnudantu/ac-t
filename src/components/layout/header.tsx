@@ -87,6 +87,13 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
               <DropdownMenuSeparator />
               <DropdownMenuLabel>{user?.roles?.join(", ") || "No active role"}</DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile" className="cursor-pointer">
+                  <User className="mr-2 h-4 w-4" />
+                  Profile & password
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <LogoutButton />
             </DropdownMenuContent>
           </DropdownMenu>

@@ -3,6 +3,9 @@ import { LoginRateLimiter } from './auth-core'
 // Local/single-process limiting only. Production must replace this with a shared
 // distributed rate-limit service; this class makes no distributed guarantee.
 export const loginRateLimiter = new LoginRateLimiter()
+// Same bounded, single-process limiter used for login, keyed by authenticated
+// account so a stolen session cannot be used for unlimited password guessing.
+export const passwordRateLimiter = new LoginRateLimiter({ maxAttempts: 5 })
 
 export type AuthRateLimiter = Pick<LoginRateLimiter, 'check' | 'fail' | 'succeed'>
 
