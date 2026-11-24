@@ -13,6 +13,8 @@ jest.mock('../src/lib/auth', () => ({
   getSession: getSessionMock,
   hasPermission: (permissions: string[], required: string | string[]) =>
     (Array.isArray(required) ? required : [required]).every((permission) => permissions.includes(permission)),
+  hasRole: (roles: string[], required: string | string[]) =>
+    (Array.isArray(required) ? required : [required]).some((role) => roles.includes(role)),
 }))
 jest.mock('../src/lib/prisma', () => ({ prisma: prismaMock }))
 
@@ -50,6 +52,16 @@ describe('approval queue route', () => {
       OR: [{ assignedToId: 'user-1' }, { assignedRoleId: { in: ['role-1'] }, assignedRole: { isActive: true } }],
     })
     expect(prismaMock.roleAssignment.findMany.mock.calls[0][0].where).toMatchObject({ scope: 'GLOBAL', matchId: null, isActive: true })
+  })
+
+  it('lets a super administrator oversee every pending step regardless of role assignment', async () => {
+    getSessionMock.mockResolvedValueOnce({
+      userId: 'admin-1', email: 'admin@example.test', fullName: 'Super Admin',
+      roles: ['SUPER_ADMIN'], permissions: ['approvals:read', 'approvals:decide', 'approvals:escalate'],
+    })
+    const response = await approvalsGet(new NextRequest('http://localhost/api/approvals'))
+    expect(response.status).toBe(200)
+    expect(prismaMock.approvalStep.findMany.mock.calls[0][0].where).toEqual({ status: { in: ['PENDING', 'IN_PROGRESS'] } })
   })
 
   it('requires authentication and the approval read permission', async () => {

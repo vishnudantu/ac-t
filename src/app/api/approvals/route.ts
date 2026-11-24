@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { z, ZodError } from 'zod'
-import { getSession, hasPermission, type SessionPayload } from '@/lib/auth'
+import { getSession, hasPermission, hasRole, type SessionPayload } from '@/lib/auth'
 import {
   approvalActionSchema,
   approvalListQuerySchema,
@@ -32,7 +32,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!hasPermission(session.permissions, 'approvals:read')) return responseError('Forbidden', 403)
     const query = approvalListQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams))
     const roleIds = await activeRoleIds(prisma, session.userId)
-    const where = approvalWhere(session.userId, roleIds, query.status)
+    // Super admins and escalation authorities oversee every pending step, not
+    // only steps assigned to their own role — otherwise the auto-provisioned
+    // APPROVAL_AUTHORITY steps are invisible to the seeded super admin.
+    const overseeAll = hasRole(session.roles, 'SUPER_ADMIN') || hasPermission(session.permissions, 'approvals:escalate')
+    const where = approvalWhere(session.userId, roleIds, query.status, overseeAll)
     const [steps, total] = await prisma.$transaction([
       prisma.approvalStep.findMany({
         where,
@@ -66,8 +70,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const input = approvalActionSchema.parse(await request.json())
     const result = await prisma.$transaction(async (tx) => {
       const roleIds = await activeRoleIds(tx, session.userId)
-      const step = await findAssignedStep(tx, input.stepId, session.userId, roleIds)
-      assertApproverAssigned(step, session.userId, session.roles)
+      const overseeAll = hasRole(session.roles, 'SUPER_ADMIN') || hasPermission(session.permissions, 'approvals:escalate')
+      const step = overseeAll
+        ? await tx.approvalStep.findUnique({ where: { id: input.stepId }, include: {
+          assignedRole: true, stepDefinition: true, workflow: true,
+          request: { include: { items: true, approvalSteps: true } },
+        } }).then((step) => {
+          if (!step) throw new LifecycleRuleError('Approval step not found', 404)
+          return step
+        })
+        : await findAssignedStep(tx, input.stepId, session.userId, roleIds)
+      if (!overseeAll) assertApproverAssigned(step, session.userId, session.roles)
       if (!step.stepDefinition.isActive || !step.workflow.isActive) {
         throw new LifecycleRuleError('Approval workflow is inactive', 409)
       }
@@ -87,13 +100,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-function approvalWhere(userId: string, roleIds: string[], status: 'PENDING' | 'IN_PROGRESS' | 'all'): Prisma.ApprovalStepWhereInput {
+function approvalWhere(userId: string, roleIds: string[], status: 'PENDING' | 'IN_PROGRESS' | 'all', overseeAll = false): Prisma.ApprovalStepWhereInput {
   return {
     status: status === 'all' ? undefined : (status === 'PENDING' ? { in: ['PENDING', 'IN_PROGRESS'] } : status),
-    OR: [
+    ...(overseeAll ? {} : { OR: [
       { assignedToId: userId },
       ...(roleIds.length ? [{ assignedRoleId: { in: roleIds }, assignedRole: { isActive: true } }] : []),
-    ],
+    ] }),
   }
 }
 
