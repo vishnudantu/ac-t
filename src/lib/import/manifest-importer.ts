@@ -1,12 +1,21 @@
-// ACA TicketOps - Manifest Excel Importer
-// Parses the standard ACA ticketing manifest format
-
 import { PrismaClient } from '@prisma/client'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 
 const prisma = new PrismaClient()
 
-interface ManifestRow {
+type Cell = string | number
+type Rows = Cell[][]
+
+export interface ManifestMatch {
+  title: string
+  tournament: string
+  format: string
+  matchDate: Date
+  venue: string
+  notes: string
+}
+
+export interface ManifestPool {
   sNo: number
   zone?: string
   standName: string
@@ -29,6 +38,20 @@ interface ManifestRow {
   phase2SaleTotalAmount: number
   phase3ForSale: number
   phase3SaleTotalAmount: number
+  category: string
+  blockName: string
+  availableQuantity: number
+  totalQuantity: number
+  reservedQuantity: number
+  faceValue: number
+  pricingCategory: string
+}
+
+export interface ManifestCategory {
+  name: string
+  displayName: string
+  pricingTier: number
+  typeOfStand: string
 }
 
 interface OTBRow {
@@ -38,76 +61,67 @@ interface OTBRow {
   left: number
 }
 
-export async function parseManifestFile(filePath: string) {
-  const workbook = XLSX.readFile(filePath)
-  const results: {
-    match: any
-    categories: any[]
-    inventoryPools: any[]
-    otbData: OTBRow[]
-  } = {
-    match: null,
-    categories: [],
-    inventoryPools: [],
-    otbData: [],
+export interface ManifestResult {
+  match: ManifestMatch | null
+  categories: ManifestCategory[]
+  inventoryPools: ManifestPool[]
+  otbData: OTBRow[]
+}
+
+function cellValue(cell: ExcelJS.Cell): Cell {
+  const value = cell.value
+  if (value === null || value === undefined) return ''
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'number' || typeof value === 'string') return value
+  if (typeof value === 'object') {
+    if ('richText' in value && Array.isArray(value.richText)) return value.richText.map((part) => part.text).join('')
+    if ('text' in value && typeof value.text === 'string') return value.text
+    if ('result' in value && (typeof value.result === 'number' || typeof value.result === 'string')) return value.result
   }
+  return String(value)
+}
 
-  // Parse Sheet1 - Main Manifest
-  if (workbook.SheetNames.includes('Sheet1')) {
-    const sheet = workbook.Sheets['Sheet1']
-    const data: (string | number)[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
-
-    // Extract match info from first row
-    const titleRow = String(data[0]?.[0] || '')
-    const matchInfo = parseMatchTitle(titleRow)
-
-    // Headers are in row 1 (index 1)
-    const headers = data[1] as string[]
-
-    // Data rows start from index 2
-    for (let i = 2; i < data.length; i++) {
-      const row = data[i] as (string | number)[]
-      if (!row || row.length === 0 || (typeof row[0] === 'string' && row[0].toLowerCase().includes('total'))) {
-        continue
-      }
-
-      const parsed = parseManifestRow(row, headers)
-      if (parsed) {
-        results.inventoryPools.push(parsed)
-      }
+function sheetRows(sheet: ExcelJS.Worksheet): Rows {
+  const rows: Rows = []
+  sheet.eachRow({ includeEmpty: true }, (row, number) => {
+    const cells: Cell[] = []
+    for (let column = 1; column <= row.cellCount; column += 1) {
+      cells[column - 1] = cellValue(row.getCell(column))
     }
+    rows[number - 1] = cells
+  })
+  return rows
+}
 
-    results.match = matchInfo
-  }
-
-  // Parse OTB Sheet
-  if (workbook.SheetNames.includes('OTB')) {
-    const sheet = workbook.Sheets['OTB']
-    const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
-
-    // OTB headers in row 1
-    const stands = data[1] as (string | number)[]
-    const costs = data[2] as (string | number)[]
-
-    for (let i = 1; i < stands.length; i++) {
-      const standName = stands[i]?.toString().trim()
-      const cost = parseFloat(costs[i]?.toString() || '0')
-      if (standName && cost > 0) {
-        results.otbData.push({
-          standName,
-          cost,
-          totalTickets: 0,
-          left: 0,
-        })
-      }
+export async function parseManifestFile(filePath: string): Promise<ManifestResult> {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(filePath)
+  const result: ManifestResult = { match: null, categories: [], inventoryPools: [], otbData: [] }
+  const manifest = workbook.getWorksheet('Sheet1')
+  if (manifest) {
+    const data = sheetRows(manifest)
+    result.match = parseMatchTitle(String(data[0]?.[0] || ''))
+    for (const row of data.slice(2)) {
+      if (!row?.length || (typeof row[0] === 'string' && row[0].toLowerCase().includes('total'))) continue
+      const pool = parseManifestRow(row)
+      if (pool) result.inventoryPools.push(pool)
     }
   }
-
-  // Derive categories from inventory
-  const categoryMap = new Map<string, any>()
-  for (const pool of results.inventoryPools) {
-    if (!categoryMap.has(pool.category)) {
-      categoryMap.set(pool.category, {
+  const otb = workbook.getWorksheet('OTB')
+  if (otb) {
+    const data = sheetRows(otb)
+    const stands = data[1] || []
+    const costs = data[2] || []
+    for (let i = 1; i < stands.length; i += 1) {
+      const standName = String(stands[i] || '').trim()
+      const cost = parseFloat(String(costs[i] || '0'))
+      if (standName && cost > 0) result.otbData.push({ standName, cost, totalTickets: 0, left: 0 })
+    }
+  }
+  const categories = new Map<string, ManifestCategory>()
+  for (const pool of result.inventoryPools) {
+    if (!categories.has(pool.category)) {
+      categories.set(pool.category, {
         name: pool.category,
         displayName: pool.category,
         pricingTier: getPricingTier(pool.typeOfStand),
@@ -115,232 +129,142 @@ export async function parseManifestFile(filePath: string) {
       })
     }
   }
-  results.categories = Array.from(categoryMap.values())
-
-  return results
+  result.categories = Array.from(categories.values())
+  return result
 }
 
-function parseMatchTitle(title: string) {
-  // "Ticketing Manifest for IND Vs SL 2025 13th December ACA VDCA Stadium Visakhapatam - Option 1"
+function parseMatchTitle(title: string): ManifestMatch {
   const match = title.match(/IND Vs ([A-Z]+) (\d{4}) (\d{1,2}(?:st|nd|rd|th)?\s+\w+\s+\w+)\s+(.+?)\s*-\s*Option/i)
-  if (match) {
-    return {
-      title: `India vs ${match[1]} - ODI`,
-      tournament: `${match[1]} Tour of India ${match[2]}`,
-      format: 'ODI',
-      matchDate: parseDate(match[3]),
-      venue: match[4].trim(),
-      notes: `Imported from manifest: ${title}`,
-    }
+  if (!match) return {
+    title: 'Imported Match', tournament: 'Unknown', format: 'ODI', matchDate: new Date(), venue: 'Unknown', notes: `Imported from manifest: ${title}`,
   }
   return {
-    title: 'Imported Match',
-    tournament: 'Unknown',
+    title: `India vs ${match[1]} - ODI`,
+    tournament: `${match[1]} Tour of India ${match[2]}`,
     format: 'ODI',
-    matchDate: new Date(),
-    venue: 'Unknown',
+    matchDate: parseDate(match[3]),
+    venue: match[4].trim(),
     notes: `Imported from manifest: ${title}`,
   }
 }
 
-function parseDate(dateStr: string): Date {
-  // "13th December 2025" or "13 December 2025"
-  const cleaned = dateStr.replace(/(\d+)(st|nd|rd|th)/, '$1')
-  return new Date(cleaned)
+function parseDate(dateString: string): Date {
+  const cleaned = dateString.replace(/(\d+)(st|nd|rd|th)/, '$1')
+  const date = new Date(cleaned)
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid manifest match date: ${dateString}`)
+  return date
 }
 
-function parseManifestRow(row: (string | number)[], headers: string[]): any | null {
-  const sNo = parseInt(row[0]?.toString() || '0')
-  if (isNaN(sNo)) return null
+function numeric(row: Rows[number], index: number): number {
+  const value = Number(row[index] || 0)
+  return Number.isFinite(value) ? value : 0
+}
 
-  const standName = row[2]?.toString().trim() || ''
-  if (!standName) return null
-
-  const zone = row[1]?.toString().trim() || undefined
-  const gateNo = row[3]?.toString().trim() || ''
-  const typeOfStand = row[4]?.toString().trim() || ''
-  const basePrice = parseFloat(row[5]?.toString() || '0')
-  const cgst = parseFloat(row[6]?.toString() || '0')
-  const sgst = parseFloat(row[7]?.toString() || '0')
-  const ticketPrice = parseFloat(row[8]?.toString() || '0')
-  const stadiumCapacity = parseInt(row[9]?.toString() || '0')
-  const amount = parseFloat(row[10]?.toString() || '0')
-  const acaComp = parseInt(row[11]?.toString() || '0')
-  const forSale = parseInt(row[12]?.toString() || '0')
-  const forSaleAmount = parseFloat(row[13]?.toString() || '0')
-  const acaBlockForSale = parseInt(row[14]?.toString() || '0')
-  const acaSaleTotalAmount = parseFloat(row[15]?.toString() || '0')
-  const phase1ForSale = parseInt(row[16]?.toString() || '0')
-  const phase1SaleTotalAmount = parseFloat(row[17]?.toString() || '0')
-  const phase2ForSale = parseInt(row[18]?.toString() || '0')
-  const phase2SaleTotalAmount = parseFloat(row[19]?.toString() || '0')
-  const phase3ForSale = parseInt(row[20]?.toString() || '0')
-  const phase3SaleTotalAmount = parseFloat(row[21]?.toString() || '0')
-
-  // Determine category from typeOfStand
-  const category = mapStandTypeToCategory(typeOfStand)
-
+function parseManifestRow(row: Cell[]): ManifestPool | null {
+  const sNo = numeric(row, 0)
+  const standName = String(row[2] || '').trim()
+  if (!Number.isInteger(sNo) || sNo <= 0 || !standName) return null
+  const typeOfStand = String(row[4] || '').trim()
   return {
     sNo,
-    zone,
+    zone: String(row[1] || '').trim() || undefined,
     standName,
-    gateNo,
+    gateNo: String(row[3] || '').trim(),
     typeOfStand,
-    basePrice,
-    cgst,
-    sgst,
-    ticketPrice,
-    stadiumCapacity,
-    amount,
-    acaComp,
-    forSale,
-    forSaleAmount,
-    acaBlockForSale,
-    acaSaleTotalAmount,
-    phase1ForSale,
-    phase1SaleTotalAmount,
-    phase2ForSale,
-    phase2SaleTotalAmount,
-    phase3ForSale,
-    phase3SaleTotalAmount,
-    category,
-    // For inventory pool
+    basePrice: numeric(row, 5), cgst: numeric(row, 6), sgst: numeric(row, 7),
+    ticketPrice: numeric(row, 8), stadiumCapacity: numeric(row, 9), amount: numeric(row, 10),
+    acaComp: numeric(row, 11), forSale: numeric(row, 12), forSaleAmount: numeric(row, 13),
+    acaBlockForSale: numeric(row, 14), acaSaleTotalAmount: numeric(row, 15),
+    phase1ForSale: numeric(row, 16), phase1SaleTotalAmount: numeric(row, 17),
+    phase2ForSale: numeric(row, 18), phase2SaleTotalAmount: numeric(row, 19),
+    phase3ForSale: numeric(row, 20), phase3SaleTotalAmount: numeric(row, 21),
+    category: mapStandTypeToCategory(typeOfStand),
     blockName: extractBlockName(standName),
-    availableQuantity: forSale,
-    totalQuantity: stadiumCapacity,
-    reservedQuantity: acaComp,
-    faceValue: ticketPrice,
+    availableQuantity: numeric(row, 12),
+    totalQuantity: numeric(row, 9),
+    reservedQuantity: numeric(row, 11),
+    faceValue: numeric(row, 8),
     pricingCategory: typeOfStand,
   }
 }
 
 function mapStandTypeToCategory(type: string): string {
-  const t = type.toLowerCase()
-  if (t.includes('premium hospitality') || t.includes('vip') || t.includes('lounge') || t.includes('suite') || t.includes('box')) {
-    return 'VIP'
-  }
-  if (t.includes('hospitality') || t.includes('meal box') || t.includes('snacks box')) {
-    return 'PREMIUM'
-  }
-  if (t.includes('general')) {
-    // Further categorize by stand name
-    return 'GENERAL'
-  }
+  const normalized = type.toLowerCase()
+  if (['premium hospitality', 'vip', 'lounge', 'suite', 'box'].some((word) => normalized.includes(word))) return 'VIP'
+  if (['hospitality', 'meal box', 'snacks box'].some((word) => normalized.includes(word))) return 'PREMIUM'
   return 'GENERAL'
 }
 
 function getPricingTier(type: string): number {
-  const t = type.toLowerCase()
-  if (t.includes('premium hospitality') || t.includes('vip') || t.includes('lounge') || t.includes('suite') || t.includes('box')) {
-    return 1
-  }
-  if (t.includes('hospitality') || t.includes('meal box') || t.includes('snacks box')) {
-    return 2
-  }
+  const normalized = type.toLowerCase()
+  if (['premium hospitality', 'vip', 'lounge', 'suite', 'box'].some((word) => normalized.includes(word))) return 1
+  if (['hospitality', 'meal box', 'snacks box'].some((word) => normalized.includes(word))) return 2
   return 3
 }
 
 function extractBlockName(standName: string): string {
-  // Extract block identifier from stand name
   const match = standName.match(/([A-Z]-?stand|[A-Z]\d?-?stand|Suite \d+-\d+|Corp Box \d+-\d+|ACA Lounge|BCCI Lounge|North Lounge|West Lounge \d|VDCA Box)/i)
   return match ? match[1] : standName
 }
 
-export async function importManifestToDatabase(filePath: string, userId: string) {
+export async function importManifestToDatabase(filePath: string, userId: string): Promise<{ matchId: string; inventoryCount: number }> {
   const parsed = await parseManifestFile(filePath)
-
-  // Create or find match
-  let match = await prisma.match.findFirst({
-    where: {
-      title: parsed.match.title,
-      matchDate: parsed.match.matchDate,
-    }
-  })
-
+  if (!parsed.match) throw new Error('The workbook does not contain a Sheet1 manifest')
+  let match = await prisma.match.findFirst({ where: { title: parsed.match.title, matchDate: parsed.match.matchDate } })
   if (!match) {
-    match = await prisma.match.create({
-      data: {
-        title: parsed.match.title,
-        tournament: parsed.match.tournament,
-        format: parsed.match.format,
-        matchDate: parsed.match.matchDate,
-        startTime: '13:30',
-        venueId: await getOrCreateVenue(parsed.match.venue),
-        status: 'UPCOMING',
-        matchAdminId: userId,
-        totalInventory: parsed.inventoryPools.reduce((sum, p) => sum + p.stadiumCapacity, 0),
-        notes: parsed.match.notes,
-      }
-    })
+    match = await prisma.match.create({ data: {
+      title: parsed.match.title,
+      tournament: parsed.match.tournament,
+      format: parsed.match.format,
+      matchDate: parsed.match.matchDate,
+      startTime: '13:30',
+      venueId: await getOrCreateVenue(parsed.match.venue),
+      status: 'UPCOMING',
+      matchAdminId: userId,
+      totalInventory: parsed.inventoryPools.reduce((sum, pool) => sum + pool.stadiumCapacity, 0),
+      notes: parsed.match.notes,
+    } })
   }
-
-  // Create ticket categories
   const categoryMap = new Map<string, string>()
-  for (const cat of parsed.categories) {
-    const existing = await prisma.ticketCategory.findUnique({
-      where: { matchId_name: { matchId: match.id, name: cat.name } }
-    })
+  for (const category of parsed.categories) {
+    const existing = await prisma.ticketCategory.findUnique({ where: { matchId_name: { matchId: match.id, name: category.name } } })
     if (existing) {
-      categoryMap.set(cat.name, existing.id)
+      categoryMap.set(category.name, existing.id)
     } else {
-      const created = await prisma.ticketCategory.create({
-        data: {
-          matchId: match.id,
-          name: cat.name,
-          displayName: cat.displayName,
-          pricingTier: cat.pricingTier,
-          sortOrder: cat.pricingTier,
-        }
-      })
-      categoryMap.set(cat.name, created.id)
+      const created = await prisma.ticketCategory.create({ data: {
+        matchId: match.id, name: category.name, displayName: category.displayName,
+        pricingTier: category.pricingTier, sortOrder: category.pricingTier,
+      } })
+      categoryMap.set(category.name, created.id)
     }
   }
-
-  // Create inventory pools
   for (const pool of parsed.inventoryPools) {
     const categoryId = categoryMap.get(pool.category)
     if (!categoryId) continue
-
+    const id = `inv-${match.id}-${categoryId}-${pool.standName}-${pool.blockName}`.replace(/[^a-zA-Z0-9-]/g, '-')
     await prisma.inventoryPool.upsert({
-      where: {
-        id: `inv-${match.id}-${categoryId}-${pool.standName}-${pool.blockName}`.replace(/[^a-zA-Z0-9-]/g, '-')
-      },
+      where: { id },
       update: {},
       create: {
-        id: `inv-${match.id}-${categoryId}-${pool.standName}-${pool.blockName}`.replace(/[^a-zA-Z0-9-]/g, '-'),
-        matchId: match.id,
-        ticketCategoryId: categoryId,
-        standName: pool.zone || pool.standName,
-        blockName: pool.blockName,
-        gateName: pool.gateNo,
-        ticketFormat: 'PHYSICAL',
-        faceValue: pool.faceValue,
-        pricingCategory: pool.pricingCategory,
-        totalQuantity: pool.totalQuantity,
-        reservedQuantity: pool.reservedQuantity,
-        availableQuantity: pool.availableQuantity,
+        id, matchId: match.id, ticketCategoryId: categoryId,
+        standName: pool.zone || pool.standName, blockName: pool.blockName, gateName: pool.gateNo,
+        ticketFormat: 'PHYSICAL', faceValue: pool.faceValue, pricingCategory: pool.pricingCategory,
+        totalQuantity: pool.totalQuantity, reservedQuantity: pool.reservedQuantity, availableQuantity: pool.availableQuantity,
         notes: `Zone: ${pool.zone || 'N/A'}, Type: ${pool.typeOfStand}, Phased sales: P1=${pool.phase1ForSale}, P2=${pool.phase2ForSale}, P3=${pool.phase3ForSale}`,
-      }
+      },
     })
   }
-
   return { matchId: match.id, inventoryCount: parsed.inventoryPools.length }
 }
 
 async function getOrCreateVenue(venueName: string): Promise<string> {
-  let venue = await prisma.venue.findFirst({
-    where: { name: { contains: venueName.split(' ')[0] } }
-  })
+  let venue = await prisma.venue.findFirst({ where: { name: { contains: venueName.split(' ')[0] } } })
   if (!venue) {
-    venue = await prisma.venue.create({
-      data: {
-        name: venueName,
-        shortName: venueName.split(' ').slice(0, 2).join(' '),
-        city: 'Visakhapatnam',
-        state: 'Andhra Pradesh',
-        country: 'India',
-      }
-    })
+    venue = await prisma.venue.create({ data: {
+      name: venueName,
+      shortName: venueName.split(' ').slice(0, 2).join(' '),
+      city: 'Visakhapatnam', state: 'Andhra Pradesh', country: 'India',
+    } })
   }
   return venue.id
 }

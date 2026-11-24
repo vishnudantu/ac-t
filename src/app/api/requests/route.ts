@@ -1,103 +1,83 @@
-import { NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { getSession, hasPermission } from "@/lib/auth"
-import { generateRequestNumber } from "@/lib/utils"
+import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
+import { generateRequestNumber } from '@/lib/utils'
+import { prisma } from '@/lib/prisma'
+import { hasPermission, type SessionPayload } from '@/lib/auth'
+import { withApiHandler, ApiError } from '@/lib/api'
+import { requestCreateSchema, requestListQuerySchema } from '@/lib/validation'
+import { apiError } from '@/lib/api-core'
+import { MAX_REQUEST_ITEMS } from '@/lib/lifecycle-rules'
 
-export async function GET(request: NextRequest) {
-  try {
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    if (!hasPermission(session.permissions, "requests:read")) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
-
-    const { searchParams } = new URL(request.url)
-    const matchId = searchParams.get("matchId")
-    const status = searchParams.get("status")
-    const requesterId = searchParams.get("requesterId")
-    const assignedToId = searchParams.get("assignedToId")
-    const search = searchParams.get("search")
-    const limit = parseInt(searchParams.get("limit") || "50")
-    const offset = parseInt(searchParams.get("offset") || "0")
-
-    const where: any = {}
-
-    // Apply match filter if user doesn't have global access
-    if (matchId) {
-      where.matchId = matchId
-    }
-
-    if (status && status !== "all") {
-      where.status = status
-    }
-
-    if (requesterId) {
-      where.requesterId = requesterId
-    }
-
-    if (assignedToId) {
-      where.assignedToId = assignedToId
-    }
-
-    if (search) {
-      where.OR = [
-        { requestNumber: { contains: search, mode: "insensitive" } },
-        { requester: { fullName: { contains: search, mode: "insensitive" } } },
-        { requester: { mobileNumber: { contains: search } } },
-        { requester: { email: { contains: search, mode: "insensitive" } } },
-      ]
-    }
-
-    const requests = await prisma.request.findMany({
+export const GET = withApiHandler(async (request: NextRequest, session: SessionPayload) => {
+  if (!hasPermission(session.permissions, 'requests:read')) return apiError('Forbidden', 403)
+  const query = requestListQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams))
+  const where: Prisma.RequestWhereInput = {
+    matchId: query.matchId,
+    status: query.status !== 'all' ? query.status : undefined,
+    requesterId: query.requesterId,
+    assignedToId: query.assignedToId,
+    ...(query.search ? { OR: [
+      { requestNumber: { contains: query.search, mode: 'insensitive' } },
+      { requester: { fullName: { contains: query.search, mode: 'insensitive' } } },
+      { requester: { mobileNumber: { contains: query.search } } },
+      { requester: { email: { contains: query.search, mode: 'insensitive' } } },
+    ] } : {}),
+  }
+  const [requests, total] = await prisma.$transaction([
+    prisma.request.findMany({
       where,
       include: {
         match: { select: { id: true, title: true, matchDate: true } },
         requester: { select: { id: true, fullName: true, mobileNumber: true, email: true, organisation: { select: { name: true } } } },
         createdBy: { select: { id: true, fullName: true } },
         assignedTo: { select: { id: true, fullName: true } },
-        items: {
-          include: { ticketCategory: { select: { id: true, name: true, displayName: true } } }
-        },
+        items: { include: { ticketCategory: { select: { id: true, name: true, displayName: true } } } },
         _count: { select: { attachments: true, comments: true, approvalSteps: true } },
       },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      skip: offset,
-    })
+      orderBy: { createdAt: 'desc' },
+      take: query.limit,
+      skip: query.offset,
+    }),
+    prisma.request.count({ where }),
+  ])
+  return NextResponse.json({ success: true, requests, total })
+})
 
-    const total = await prisma.request.count({ where })
-
-    return NextResponse.json({ requests, total })
-  } catch (error) {
-    console.error("Error fetching requests:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+export const POST = withApiHandler(async (request: NextRequest, session: SessionPayload) => {
+  if (!hasPermission(session.permissions, 'requests:write')) return apiError('Forbidden', 403)
+  const data = requestCreateSchema.parse(await request.json())
+  if (data.items.length > MAX_REQUEST_ITEMS) return apiError(`A request cannot contain more than ${MAX_REQUEST_ITEMS} items`, 400)
+  if (new Set(data.items.map((item) => item.ticketCategoryId)).size !== data.items.length) {
+    return apiError('Duplicate ticket categories are not allowed in a request', 400)
   }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (data.assignedToId && !hasPermission(session.permissions, 'requests:assign')) {
+    return apiError('You do not have permission to assign requests', 403)
+  }
+  const created = await prisma.$transaction(async (tx) => {
+    const [match, requester, categories] = await Promise.all([
+      tx.match.findUnique({ where: { id: data.matchId }, select: { id: true, status: true } }),
+      tx.requester.findUnique({ where: { id: data.requesterId }, select: { id: true, isActive: true } }),
+      tx.ticketCategory.findMany({ where: { id: { in: data.items.map((item) => item.ticketCategoryId) } }, select: { id: true, matchId: true, isActive: true } }),
+    ])
+    if (!match || match.status === 'CANCELLED' || match.status === 'COMPLETED') throw new ApiError(422, 'Match is not accepting requests')
+    if (!requester?.isActive) throw new ApiError(422, 'Requester is not active')
+    if (categories.length !== new Set(data.items.map((item) => item.ticketCategoryId)).size || categories.some((category) => category.matchId !== data.matchId || !category.isActive)) {
+      throw new ApiError(422, 'Every category must be active and belong to the selected match')
     }
-
-    if (!hasPermission(session.permissions, "requests:write")) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (data.assignedToId) {
+      const assignedTo = await tx.user.findUnique({ where: { id: data.assignedToId }, select: { isActive: true } })
+      if (!assignedTo?.isActive) throw new ApiError(422, 'Assigned user is not active')
     }
-
-    const data = await request.json()
-
-    // Generate request number
+    const workflow = data.status === 'SUBMITTED' ? await tx.approvalWorkflow.findFirst({
+      where: { matchId: data.matchId, isActive: true },
+      include: { steps: { where: { isActive: true }, orderBy: { stepOrder: 'asc' } } },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+    }) : null
+    if (data.status === 'SUBMITTED' && !workflow?.steps.length) {
+      throw new ApiError(422, 'This match has no active approval workflow. Save as a draft or contact a match administrator.')
+    }
     const requestNumber = generateRequestNumber()
-
-    // Calculate totals
-    const items = data.items || []
-    const totalRequested = items.reduce((sum: number, item: any) => sum + (item.requestedQuantity || 0), 0)
-
-    const newRequest = await prisma.request.create({
+    const newRequest = await tx.request.create({
       data: {
         requestNumber,
         matchId: data.matchId,
@@ -106,60 +86,46 @@ export async function POST(request: NextRequest) {
         assignedToId: data.assignedToId,
         source: data.source,
         sourceReference: data.sourceReference,
-        priority: data.priority || "NORMAL",
+        priority: data.priority,
         protocolClassification: data.protocolClassification,
-        status: data.status || "DRAFT",
-        fulfilmentStatus: "PENDING",
+        status: data.status === 'SUBMITTED' ? 'UNDER_REVIEW' : data.status,
+        fulfilmentStatus: 'PENDING',
         requiredDeliveryMethod: data.requiredDeliveryMethod,
         preferredStand: data.preferredStand,
         preferredType: data.preferredType,
         purpose: data.purpose,
         specialInstructions: data.specialInstructions,
         internalNotes: data.internalNotes,
-        totalRequested,
-        totalApproved: 0,
-        totalAllocated: 0,
-        totalIssued: 0,
-        totalDelivered: 0,
-        items: {
-          create: items.map((item: any) => ({
-            requesterId: item.requesterId || data.requesterId,
-            ticketCategoryId: item.ticketCategoryId,
-            requestedQuantity: item.requestedQuantity,
-            preferredStand: item.preferredStand,
-            preferredBlock: item.preferredBlock,
-            priority: item.priority || 0,
-            notes: item.notes,
-          }))
-        },
+        submittedAt: data.status === 'SUBMITTED' ? new Date() : null,
+        totalRequested: data.items.reduce((sum, item) => sum + item.requestedQuantity, 0),
+        items: { create: data.items.map((item) => ({ ...item, requesterId: item.requesterId || data.requesterId })) },
       },
-      include: {
-        items: { include: { ticketCategory: true } },
-        requester: true,
-        match: true,
-      },
+      include: { items: { include: { ticketCategory: true } }, requester: true, match: true },
     })
-
-    // Create audit log
-    await prisma.auditEvent.create({
-      data: {
-        userId: session.userId,
-        entityType: "REQUEST",
-        entityId: newRequest.id,
-        action: "CREATE",
-        newValues: { requestNumber: newRequest.requestNumber, ...data },
-        ipAddress: request.headers.get("x-forwarded-for") || "unknown",
-      },
-    })
-
-    // Trigger approval workflow if submitted
-    if (data.status === "SUBMITTED") {
-      // In real app, trigger workflow
+    if (workflow) {
+      await tx.approvalStep.createMany({ data: workflow.steps.map((step, index) => ({
+        requestId: newRequest.id,
+        workflowId: workflow.id,
+        stepDefinitionId: step.id,
+        stepOrder: step.stepOrder,
+        name: step.name,
+        status: index === 0 ? 'IN_PROGRESS' : 'PENDING',
+        assignedToId: step.approverUserId,
+        assignedRoleId: step.approverRoleId,
+        startedAt: index === 0 ? new Date() : null,
+        deadlineAt: step.timeoutHours ? new Date(Date.now() + step.timeoutHours * 60 * 60 * 1000) : null,
+      })) })
     }
-
-    return NextResponse.json(newRequest, { status: 201 })
-  } catch (error) {
-    console.error("Error creating request:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
-  }
-}
+    await tx.auditEvent.create({ data: {
+      userId: session.userId,
+      matchId: data.matchId,
+      entityType: 'REQUEST',
+      entityId: newRequest.id,
+      action: data.status === 'SUBMITTED' ? 'SUBMIT' : 'CREATE',
+      newValues: JSON.stringify({ requestNumber, status: data.status, totalRequested: newRequest.totalRequested }),
+      changedFields: ['requestNumber', 'status', 'totalRequested'],
+    } })
+    return newRequest
+  })
+  return NextResponse.json({ success: true, ...created }, { status: 201 })
+})

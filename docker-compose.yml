@@ -1,11 +1,24 @@
-version: '3.8'
+x-app-environment: &app-environment
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+  JWT_SECRET: ${JWT_SECRET:?Set a unique JWT_SECRET of at least 32 characters in .env}
+  ALLOW_EPHEMERAL_DEV_AUTH: "false"
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  # Reserved SMTP settings: outbound delivery is not wired in the application yet.
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
 
 services:
-  # ============================================
-  # PostgreSQL Database
-  # ============================================
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.13-alpine3.23
     container_name: aca-ticketops-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-aca_ticketops}
@@ -14,148 +27,99 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
+    # Optional host access for local tooling; omit POSTGRES_HOST_PORT to keep the
+    # database private to this Compose network in production-like deployments.
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-127.0.0.1:55432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-aca_ticketops}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
-    networks:
-      - ticketops-network
+    networks: [backend]
+    logging: *default-logging
 
-  # ============================================
-  # Redis for BullMQ Background Jobs
-  # ============================================
-  redis:
-    image: redis:7-alpine
-    container_name: aca-ticketops-redis
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - ticketops-network
-
-  # ============================================
-  # MinIO (S3-compatible storage) - Optional for local dev
-  # ============================================
-  minio:
-    image: minio/minio:latest
-    container_name: aca-ticketops-minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    volumes:
-      - minio_data:/data
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    restart: unless-stopped
-    networks:
-      - ticketops-network
-
-  # ============================================
-  # ACA TicketOps Application
-  # ============================================
-  app:
+  migrate:
     build:
       context: .
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
-        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-ACA TicketOps}
-        NEXT_PUBLIC_ORG_NAME: ${NEXT_PUBLIC_ORG_NAME:-Andhra Cricket Association}
-        DATABASE_URL: ${DATABASE_URL}
-    container_name: aca-ticketops-app
+      target: migrations
+    profiles: [migration]
     environment:
-      - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL}
-      - AUTH_SECRET=${AUTH_SECRET}
-      - JWT_SECRET=${JWT_SECRET}
-      - SESSION_PASSWORD=${SESSION_PASSWORD}
-      - REDIS_URL=redis://redis:6379
-      - S3_ENDPOINT=http://minio:9000
-      - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
-      - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
-      - S3_BUCKET=aca-ticketops
-      - S3_REGION=auto
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT:-587}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - SMTP_FROM=${SMTP_FROM}
-      - SMS_PROVIDER=${SMS_PROVIDER}
-      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
-      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
-      - TWILIO_FROM_NUMBER=${TWILIO_FROM_NUMBER}
-      - WHATSAPP_API_URL=${WHATSAPP_API_URL}
-      - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID}
-      - WHATSAPP_ACCESS_TOKEN=${WHATSAPP_ACCESS_TOKEN}
-      - WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
-      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
-      - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-ACA TicketOps}
-      - NEXT_PUBLIC_ORG_NAME=${NEXT_PUBLIC_ORG_NAME:-Andhra Cricket Association}
-      - TIMEZONE=Asia/Kolkata
-      - ENABLE_MFA=${ENABLE_MFA:-true}
-      - ENABLE_WHATSAPP=${ENABLE_WHATSAPP:-true}
-      - ENABLE_SMS=${ENABLE_SMS:-true}
-      - ENABLE_EMAIL=${ENABLE_EMAIL:-true}
-      - SEED_DATABASE=${SEED_DATABASE:-false}
-    ports:
-      - "3000:3000"
+      DATABASE_URL: ${DATABASE_URL:?Set the migration DATABASE_URL in .env}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        if [ ! -d /app/prisma/migrations ] || [ -z "$$(find /app/prisma/migrations -mindepth 2 -maxdepth 2 -name migration.sql -print -quit)" ]; then
+          printf '%s\n' 'No reviewed Prisma migration history exists. Generate, review, and commit an initial migration before deploying.' >&2
+          printf '%s\n' 'This service never runs prisma db push and has not modified the database.' >&2
+          exit 1
+        fi
+        exec node node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - ticketops-network
+    restart: "no"
+    networks: [backend]
+    logging: *default-logging
 
-  # ============================================
-  # Nginx Reverse Proxy (Production)
-  # ============================================
-  nginx:
-    image: nginx:alpine
-    container_name: aca-ticketops-nginx
+  app:
+    build:
+      context: .
+      target: runner
+    environment: *app-environment
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-      - nginx_cache:/var/cache/nginx
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
     depends_on:
-      - app
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
-    networks:
-      - ticketops-network
+    networks: [backend]
+    logging: *default-logging
+
+  # Unused integrations are opt-in plumbing, not proof of application support.
+  redis:
+    image: redis:7.4.8-alpine3.23
+    profiles: [integrations]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-local_demo_redis_password}"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    restart: unless-stopped
+    networks: [backend]
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    profiles: [integrations]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-local_demo_minio_password}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks: [backend]
+    logging: *default-logging
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
-  nginx_cache:
 
 networks:
-  ticketops-network:
+  backend:
     driver: bridge

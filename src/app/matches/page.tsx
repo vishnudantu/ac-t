@@ -1,246 +1,222 @@
 "use client"
 
-import * as React from "react"
-import { useSession } from "@/hooks/use-session"
-import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState } from "react"
+import { CalendarDays, MapPin, Trophy, Plus, Pencil, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Calendar,
-  Plus,
-  Search,
-  Filter,
-  Edit,
-  Trash2,
-  Eye,
-  Copy,
-  Trophy,
-} from "lucide-react"
-import { formatDate, formatStatus, getStatusColor } from "@/lib/utils"
-import { Input } from "@/components/ui/input"
-import Link from "next/link"
+import { useSession } from "@/hooks/use-session"
+import { MatchFormDialog } from "@/components/matches/match-form-dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { postLifecycle } from "@/components/lifecycle/client"
+import type { MatchOption } from "@/components/lifecycle/types"
 
-const matches = [
-  {
-    id: "1",
-    title: "India vs Australia - 2nd ODI",
-    tournament: "Australia Tour of India 2026",
-    format: "ODI",
-    date: "2026-12-15",
-    venue: "Dr. Y.S. Rajasekhara Reddy ACA-VDCA Cricket Stadium",
-    status: "UPCOMING",
-    requestsOpen: "2026-12-08",
-    requestsClose: "2026-12-10",
-    totalInventory: 38000,
-    totalRequests: 1247,
-    totalApproved: 28450,
-  },
-  {
-    id: "2",
-    title: "India vs England - 3rd Test",
-    tournament: "England Tour of India 2026",
-    format: "TEST",
-    date: "2027-01-20",
-    venue: "Indira Gandhi Municipal Stadium",
-    status: "UPCOMING",
-    requestsOpen: "2027-01-10",
-    requestsClose: "2027-01-15",
-    totalInventory: 25000,
-    totalRequests: 0,
-    totalApproved: 0,
-  },
-  {
-    id: "3",
-    title: "South Zone vs North Zone - Final",
-    tournament: "Duleep Trophy 2026",
-    format: "TOURNAMENT",
-    date: "2026-11-10",
-    venue: "Kurnool Cricket Stadium",
-    status: "COMPLETED",
-    requestsOpen: "2026-10-20",
-    requestsClose: "2026-11-05",
-    totalInventory: 20000,
-    totalRequests: 892,
-    totalApproved: 18200,
-  },
-  {
-    id: "4",
-    title: "Andhra vs Karnataka - Ranji Match",
-    tournament: "Ranji Trophy 2026-27",
-    format: "TEST",
-    date: "2026-12-01",
-    venue: "Tirupati Cricket Ground",
-    status: "ACTIVE",
-    requestsOpen: "2026-11-20",
-    requestsClose: "2026-11-28",
-    totalInventory: 15000,
-    totalRequests: 456,
-    totalApproved: 12100,
-  },
+interface Venue { id: string; name: string; city: string }
+interface MatchRecord extends MatchOption {
+  tournament: string | null
+  format: string
+  startTime: string
+  status: string
+  requestOpensAt: string | null
+  requestClosesAt: string | null
+  totalInventory: number
+  venue: { name: string; city: string }
+  _count: { requests: number; ticketCategories: number; inventoryPools: number }
+}
+import { MainLayout } from "@/components/layout/main-layout"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { getMatches } from "@/components/operations/api"
+import { DataState, EmptyState, TableSkeleton } from "@/components/operations/data-state"
+import { FilterSelect, Pagination, SearchInput } from "@/components/operations/list-controls"
+import { PageHeader } from "@/components/operations/page-header"
+import { useOperationData } from "@/components/operations/use-operation-data"
+import { formatDate, formatNumber, formatStatus, getStatusColor } from "@/lib/utils"
+
+const PAGE_SIZE = 20
+const statusOptions = [
+  { value: "all", label: "All statuses" },
+  { value: "UPCOMING", label: "Upcoming" },
+  { value: "ACTIVE", label: "Active" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "CANCELLED", label: "Cancelled" },
+  { value: "POSTPONED", label: "Postponed" },
 ]
 
 export default function MatchesPage() {
-  const { user, loading } = useSession()
-  const [search, setSearch] = React.useState("")
-  const [statusFilter, setStatusFilter] = React.useState("all")
+  const [search, setSearch] = useState("")
+  const [status, setStatus] = useState("all")
+  const [page, setPage] = useState(1)
+  const { user } = useSession()
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<MatchRecord | null>(null)
+  const [deleting, setDeleting] = useState<MatchRecord | null>(null)
+  const [venues, setVenues] = useState<Venue[]>([])
+  const [actionError, setActionError] = useState("")
+  const canWrite = Boolean(user?.permissions.includes("matches:write"))
+  const canDelete = Boolean(user?.permissions.includes("matches:delete"))
+  const { data, loading, error, retry } = useOperationData(
+    (signal) => getMatches(signal, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, status }),
+    [page, status],
+  )
 
-  if (loading) {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      </MainLayout>
-    )
+  const matches = (data?.matches ?? []) as MatchRecord[]
+
+  async function openForm(match: MatchRecord | null) {
+    setEditing(match)
+    const response = await fetch("/api/venues", { cache: "no-store" })
+    const body = await response.json() as { venues?: Venue[]; error?: string }
+    if (!response.ok) { setActionError(body.error || "Unable to load venues"); return }
+    setVenues(body.venues ?? [])
+    setFormOpen(true)
   }
 
-  const filteredMatches = matches.filter((match) => {
-    const matchesSearch = match.title.toLowerCase().includes(search.toLowerCase()) ||
-      match.tournament.toLowerCase().includes(search.toLowerCase()) ||
-      match.venue.toLowerCase().includes(search.toLowerCase())
-    const matchesStatus = statusFilter === "all" || match.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
+  async function confirmDelete() {
+    if (!deleting) return
+    setActionError("")
+    try {
+      const response = await fetch(`/api/matches/${deleting.id}`, { method: "DELETE" })
+      const body: unknown = await response.json()
+      if (!response.ok) throw new Error(typeof body === "object" && body !== null && "error" in body && typeof body.error === "string" ? body.error : "Unable to delete match")
+      setDeleting(null)
+      retry()
+    } catch (cause: unknown) {
+      setActionError(cause instanceof Error ? cause.message : "Unable to delete match")
+    }
+  }
+  const query = search.trim().toLowerCase()
+  const filteredMatches = matches.filter((match) =>
+    !query || [match.title, match.tournament, match.venue.name, match.venue.city]
+      .some((value) => value?.toLowerCase().includes(query)),
+  )
+
+  function changeStatus(value: string) {
+    setStatus(value)
+    setPage(1)
+  }
+
+  function clearFilters() {
+    setSearch("")
+    setStatus("all")
+    setPage(1)
+  }
 
   return (
     <MainLayout>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Matches</h1>
-            <p className="text-muted-foreground">Manage cricket matches and events</p>
-          </div>
-          <Button asChild>
-            <Link href="/matches/new">
-              <Plus className="h-4 w-4 mr-2" />
-              New Match
-            </Link>
-          </Button>
-        </div>
-
-        {/* Filters */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search matches, tournaments, venues..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="flex h-10 w-[180px] items-center rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  <option value="all">All Status</option>
-                  <option value="UPCOMING">Upcoming</option>
-                  <option value="ACTIVE">Active</option>
-                  <option value="COMPLETED">Completed</option>
-                  <option value="CANCELLED">Cancelled</option>
-                  <option value="POSTPONED">Postponed</option>
-                </select>
-              </div>
-            </div>
+      <div className="space-y-5">
+        <PageHeader
+          title="Matches"
+          description="Match schedules, venues, request windows, and linked operational records."
+          onRefresh={retry}
+          refreshing={loading}
+          actions={canWrite ? <Button size="sm" onClick={() => { void openForm(null) }}><Plus className="mr-2 h-4 w-4" />New match</Button> : undefined}
+        />
+        {actionError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{actionError}</p>}
+        <Card className="shadow-none">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              label="Filter matches on this page"
+              placeholder="Filter this page by match or venue…"
+            />
+            <FilterSelect value={status} onChange={changeStatus} label="Status" options={statusOptions} />
           </CardContent>
         </Card>
-
-        {/* Matches Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>All Matches ({matches.length})</CardTitle>
+        <Card className="shadow-none">
+          <CardHeader className="p-4 pb-3">
+            <CardTitle className="text-lg">Match schedule</CardTitle>
+            <CardDescription>
+              {data ? `${formatNumber(data.total)} ${status === "all" ? "matches" : `${formatStatus(status).toLowerCase()} matches`}` : "Live match records"}
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Match</TableHead>
-                    <TableHead>Format</TableHead>
-                    <TableHead>Date & Venue</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Request Period</TableHead>
-                    <TableHead className="text-right">Inventory</TableHead>
-                    <TableHead className="text-right">Requests</TableHead>
-                    <TableHead className="text-right">Approved</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredMatches.map((match) => (
-                    <TableRow key={match.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{match.title}</p>
-                          <p className="text-sm text-muted-foreground">{match.tournament}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{match.format}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>{formatDate(match.date)}</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground truncate max-w-[200px]">{match.venue}</p>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={getStatusColor(match.status)}>
-                          {formatStatus(match.status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        <p>{formatDate(match.requestsOpen)} - {formatDate(match.requestsClose)}</p>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">{match.totalInventory.toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-medium">{match.totalRequests.toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-medium text-green-600">{match.totalApproved.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" asChild>
-                            <Link href={`/matches/${match.id}`}>
-                              <Eye className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" asChild>
-                            <Link href={`/matches/${match.id}/edit`}>
-                              <Edit className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" asChild>
-                            <Link href={`/matches/${match.id}/clone`}>
-                              <Copy className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                        </div>
-                      </TableCell>
+          <CardContent className="p-0">
+            <DataState loading={loading} error={error} onRetry={retry} skeleton={<TableSkeleton rows={5} />}>
+              {filteredMatches.length === 0 ? (
+                <EmptyState
+                  icon={<Trophy className="h-10 w-10" />}
+                  title={query || status !== "all" ? "No matching matches" : "No matches recorded"}
+                  description={query
+                    ? "No records on this page match your search. Try another page or clear the search."
+                    : status !== "all"
+                      ? "There are no matches with this status."
+                      : "Match records will appear here when they are available."}
+                  onClear={query || status !== "all" ? clearFilters : undefined}
+                />
+              ) : (
+                <Table>
+                  <TableCaption className="sr-only">Match schedules and operational counts</TableCaption>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead scope="col">Match</TableHead>
+                      <TableHead scope="col">Date &amp; venue</TableHead>
+                      <TableHead scope="col">Status</TableHead>
+                      <TableHead scope="col">Request window</TableHead>
+                      <TableHead scope="col" className="text-right">Requests</TableHead>
+                      <TableHead scope="col" className="text-right">Inventory pools</TableHead>
+                      <TableHead scope="col" className="text-right">Stock</TableHead>
+                      {(canWrite || canDelete) && <TableHead scope="col"><span className="sr-only">Actions</span></TableHead>}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredMatches.map((match) => (
+                      <TableRow key={match.id}>
+                        <TableCell className="min-w-56">
+                          <div className="font-medium">{match.title}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{match.tournament || "Tournament not specified"}</div>
+                          <Badge variant="secondary" className="mt-2">{match.format}</Badge>
+                        </TableCell>
+                        <TableCell className="min-w-52">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                            <span>{formatDate(match.matchDate)} · {match.startTime}</span>
+                          </div>
+                          <div className="mt-1.5 flex max-w-64 items-start gap-1.5 text-xs text-muted-foreground">
+                            <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            <span>{match.venue.name}, {match.venue.city}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell><Badge className={getStatusColor(match.status)}>{formatStatus(match.status)}</Badge></TableCell>
+                        <TableCell className="min-w-40 text-xs">
+                          {match.requestOpensAt || match.requestClosesAt ? (
+                            <>
+                              <div>{match.requestOpensAt ? formatDate(match.requestOpensAt) : "Not set"}</div>
+                              <div className="mt-1 text-muted-foreground">to {match.requestClosesAt ? formatDate(match.requestClosesAt) : "Not set"}</div>
+                            </>
+                          ) : <span className="text-muted-foreground">Not scheduled</span>}
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">{formatNumber(match._count.requests)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(match._count.inventoryPools)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(match.totalInventory)}</TableCell>
+                        {(canWrite || canDelete) && <TableCell className="whitespace-nowrap text-right">
+                          {canWrite && <Button variant="ghost" size="icon" onClick={() => { void openForm(match) }} aria-label={`Edit ${match.title}`}><Pencil className="h-4 w-4" /></Button>}
+                          {canDelete && <Button variant="ghost" size="icon" onClick={() => setDeleting(match)} aria-label={`Delete ${match.title}`}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                        </TableCell>}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </DataState>
           </CardContent>
+          {data && !error && !loading && (
+            <Pagination
+              page={page}
+              pageSize={PAGE_SIZE}
+              total={data.total}
+              itemCount={filteredMatches.length}
+              onPageChange={setPage}
+              filtered={Boolean(query)}
+            />
+          )}
         </Card>
-
-        {filteredMatches.length === 0 && (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <Trophy className="h-12 w-12 mx-auto text-muted-foreground/50" />
-              <h3 className="mt-4 text-lg font-medium">No matches found</h3>
-              <p className="mt-2 text-muted-foreground">Try adjusting your search or filters</p>
-            </CardContent>
-          </Card>
-        )}
       </div>
+      <MatchFormDialog open={formOpen} match={editing} venues={venues} onOpenChange={setFormOpen} onSaved={retry} />
+      <Dialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open) setDeleting(null) }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Delete match?</DialogTitle><DialogDescription>Delete “{deleting?.title}”? This is allowed only when the match has no operational records. Otherwise, cancel the match to preserve its audit trail.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => setDeleting(null)}>Keep match</Button><Button variant="destructive" onClick={() => { void confirmDelete() }}>Delete match</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   )
 }

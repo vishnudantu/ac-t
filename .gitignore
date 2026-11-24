@@ -11,6 +11,7 @@ next-env.d.ts
 # Environment files and secrets
 .env
 .env.*
+.env.demo
 !.env.example
 ssl/
 *.pem
@@ -22,9 +23,11 @@ docker-compose.override.yml
 # Local tools and logs
 .claude/
 *.log
+audit-*.json
 
-# Databases and backups
+# Databases and backups (reviewed Prisma migrations are version-controlled)
 *.sql
+!prisma/migrations/**/*.sql
 *.db
 *.sqlite
 backups/

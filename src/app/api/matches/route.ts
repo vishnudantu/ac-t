@@ -1,102 +1,49 @@
-import { NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { getSession, hasPermission } from "@/lib/auth"
+import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
+import { hasPermission, type SessionPayload } from '@/lib/auth'
+import { withApiHandler } from '@/lib/api'
+import { matchCreateSchema, matchListQuerySchema } from '@/lib/validation'
+import { apiError } from '@/lib/api-core'
 
-export async function GET(request: NextRequest) {
-  try {
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    if (!hasPermission(session.permissions, "matches:read")) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
-
-    const { searchParams } = new URL(request.url)
-    const status = searchParams.get("status")
-    const limit = parseInt(searchParams.get("limit") || "50")
-    const offset = parseInt(searchParams.get("offset") || "0")
-
-    const where: any = {}
-    if (status && status !== "all") {
-      where.status = status
-    }
-
-    const matches = await prisma.match.findMany({
+export const GET = withApiHandler(async (request: NextRequest, session: SessionPayload) => {
+  if (!hasPermission(session.permissions, 'matches:read')) return apiError('Forbidden', 403)
+  const query = matchListQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams))
+  const where: Prisma.MatchWhereInput = query.status && query.status !== 'all' ? { status: query.status } : {}
+  const [matches, total] = await prisma.$transaction([
+    prisma.match.findMany({
       where,
       include: {
         venue: true,
         matchAdmin: { select: { id: true, fullName: true, email: true } },
-        _count: {
-          select: { requests: true, ticketCategories: true, inventoryPools: true },
-        },
+        _count: { select: { requests: true, ticketCategories: true, inventoryPools: true } },
       },
-      orderBy: { matchDate: "desc" },
-      take: limit,
-      skip: offset,
-    })
+      orderBy: { matchDate: 'desc' },
+      take: query.limit,
+      skip: query.offset,
+    }),
+    prisma.match.count({ where }),
+  ])
+  return NextResponse.json({ success: true, matches, total })
+})
 
-    const total = await prisma.match.count({ where })
-
-    return NextResponse.json({ matches, total })
-  } catch (error) {
-    console.error("Error fetching matches:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    if (!hasPermission(session.permissions, "matches:write")) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
-
-    const data = await request.json()
-
-    const match = await prisma.match.create({
-      data: {
-        title: data.title,
-        tournament: data.tournament,
-        format: data.format,
-        matchDate: new Date(data.matchDate),
-        startTime: data.startTime,
-        venueId: data.venueId,
-        status: data.status || "UPCOMING",
-        requestOpensAt: data.requestOpensAt ? new Date(data.requestOpensAt) : null,
-        requestClosesAt: data.requestClosesAt ? new Date(data.requestClosesAt) : null,
-        approvalDeadline: data.approvalDeadline ? new Date(data.approvalDeadline) : null,
-        allocationDeadline: data.allocationDeadline ? new Date(data.allocationDeadline) : null,
-        distributionDeadline: data.distributionDeadline ? new Date(data.distributionDeadline) : null,
-        matchAdminId: data.matchAdminId || session.userId,
-        totalInventory: data.totalInventory || 0,
-        notes: data.notes,
-        restrictions: data.restrictions,
-        operationalInstructions: data.operationalInstructions,
-      },
-      include: { venue: true },
-    })
-
-    // Create audit log
-    await prisma.auditEvent.create({
-      data: {
-        userId: session.userId,
-        entityType: "MATCH",
-        entityId: match.id,
-        action: "CREATE",
-        newValues: data,
-        ipAddress: request.headers.get("x-forwarded-for") || "unknown",
-      },
-    })
-
-    return NextResponse.json(match, { status: 201 })
-  } catch (error) {
-    console.error("Error creating match:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
-  }
-}
+export const POST = withApiHandler(async (request: NextRequest, session: SessionPayload) => {
+  if (!hasPermission(session.permissions, 'matches:write')) return apiError('Forbidden', 403)
+  const data = matchCreateSchema.parse(await request.json())
+  const venue = await prisma.venue.findUnique({ where: { id: data.venueId }, select: { id: true, isActive: true } })
+  if (!venue?.isActive) return apiError('Select an active venue', 422)
+  const match = await prisma.$transaction(async (tx) => {
+    const created = await tx.match.create({ data: { ...data, matchAdminId: session.userId }, include: { venue: true } })
+    await tx.auditEvent.create({ data: {
+      userId: session.userId,
+      matchId: created.id,
+      entityType: 'MATCH',
+      entityId: created.id,
+      action: 'CREATE',
+      newValues: JSON.stringify({ title: data.title, matchDate: data.matchDate, venueId: data.venueId }),
+      changedFields: ['title', 'matchDate', 'venueId'],
+    } })
+    return created
+  })
+  return NextResponse.json({ success: true, match }, { status: 201 })
+})

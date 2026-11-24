@@ -71,8 +71,39 @@
 
 /* Print styles */
 @media print {
-  .no-print {
+  .no-print,
+  aside,
+  header,
+  nav {
     display: none !important;
+  }
+  .lg\:pl-64 {
+    padding-left: 0 !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt;
+  }
+  .shadow-none,
+  .rounded-lg,
+  .rounded-md {
+    box-shadow: none !important;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th,
+  td {
+    border: 1px solid #d1d5db !important;
+    padding: 6px 8px !important;
+  }
+  tr {
+    break-inside: avoid;
   }
   .print-break-inside-avoid {
     break-inside: avoid;

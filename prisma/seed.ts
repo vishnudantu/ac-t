@@ -144,7 +144,7 @@ async function main() {
       isSystem: true,
       permissions: [
         'requests:read', 'requests:write', 'requests:export',
-        'approvals:read',
+        'approvals:read', 'approvals:decide',
         'reports:read',
       ],
     },
@@ -168,6 +168,7 @@ async function main() {
         'quotas:read', 'quotas:write', 'quotas:transfer',
         'inventory:read',
         'allocations:read',
+        'approvals:read', 'approvals:decide',
         'reports:read',
       ],
     },
@@ -258,13 +259,17 @@ async function main() {
   // ============================================
   // Create Super Admin User
   // ============================================
-  const hashedPassword = await bcrypt.hash('Admin@123', 12)
+  const adminPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.DEMO_ADMIN_PASSWORD
+  if (!adminPassword || adminPassword.length < 16) {
+    throw new Error('ADMIN_INITIAL_PASSWORD must be set to a password of at least 16 characters before seeding')
+  }
+  const hashedPassword = await bcrypt.hash(adminPassword, 12)
 
   const superAdmin = await prisma.user.upsert({
-    where: { email: 'admin@aca.gov.in' },
+    where: { email: 'office@andhracricket.com' },
     update: {},
     create: {
-      email: 'admin@aca.gov.in',
+      email: 'office@andhracricket.com',
       passwordHash: hashedPassword,
       fullName: 'System Administrator',
       mobileNumber: '+919876543210',

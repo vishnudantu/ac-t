@@ -1,504 +1,210 @@
 "use client"
 
-import * as React from "react"
-import { useSession } from "@/hooks/use-session"
+import { useState } from "react"
+import { Archive, ArrowLeft, Boxes, CheckCircle2, Package, Ticket, XCircle, Pencil } from "lucide-react"
 import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useSession } from "@/hooks/use-session"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Ticket,
-  Search,
-  Filter,
-  Plus,
-  Download,
-  Upload,
-  Eye,
-  Edit,
-  AlertTriangle,
-  CheckCircle,
-} from "lucide-react"
-import { formatNumber, formatStatus } from "@/lib/utils"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import Link from "next/link"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { getInventory } from "@/components/operations/api"
+import { DataState, EmptyState, MetricSkeleton, TableSkeleton } from "@/components/operations/data-state"
+import { FilterSelect, Pagination, SearchInput } from "@/components/operations/list-controls"
+import { MetricCard } from "@/components/operations/metric-card"
+import { PageHeader } from "@/components/operations/page-header"
+import { useOperationData } from "@/components/operations/use-operation-data"
+import { formatCurrency, formatNumber } from "@/lib/utils"
 
-const inventory = [
-  {
-    id: "1",
-    category: "VIP",
-    stand: "VIP Pavilion",
-    block: "A",
-    gate: "Gate 1",
-    format: "PHYSICAL",
-    faceValue: 5000,
-    total: 500,
-    reserved: 100,
-    available: 400,
-    allocated: 15,
-    issued: 10,
-    returned: 0,
-    void: 0,
-  },
-  {
-    id: "2",
-    category: "VIP",
-    stand: "VIP Pavilion",
-    block: "B",
-    gate: "Gate 1",
-    format: "PHYSICAL",
-    faceValue: 5000,
-    total: 500,
-    reserved: 50,
-    available: 450,
-    allocated: 5,
-    issued: 0,
-    returned: 0,
-    void: 0,
-  },
-  {
-    id: "3",
-    category: "PREMIUM",
-    stand: "Premium Stand",
-    block: "C",
-    gate: "Gate 2",
-    format: "PHYSICAL",
-    faceValue: 3000,
-    total: 2000,
-    reserved: 200,
-    available: 1800,
-    allocated: 60,
-    issued: 50,
-    returned: 0,
-    void: 0,
-  },
-  {
-    id: "4",
-    category: "PREMIUM",
-    stand: "Premium Stand",
-    block: "D",
-    gate: "Gate 2",
-    format: "PHYSICAL",
-    faceValue: 3000,
-    total: 2000,
-    reserved: 200,
-    available: 1800,
-    allocated: 0,
-    issued: 0,
-    returned: 0,
-    void: 0,
-  },
-  {
-    id: "5",
-    category: "GENERAL_EAST",
-    stand: "East Stand",
-    block: "E1",
-    gate: "Gate 3",
-    format: "PHYSICAL",
-    faceValue: 500,
-    total: 5000,
-    reserved: 0,
-    available: 5000,
-    allocated: 80,
-    issued: 80,
-    returned: 0,
-    void: 0,
-  },
-  {
-    id: "6",
-    category: "GENERAL_EAST",
-    stand: "East Stand",
-    block: "E2",
-    gate: "Gate 3",
-    format: "PHYSICAL",
-    faceValue: 500,
-    total: 5000,
-    reserved: 0,
-    available: 5000,
-    allocated: 0,
-    issued: 0,
-    returned: 0,
-    void: 0,
-  },
-  {
-    id: "7",
-    category: "GENERAL_WEST",
-    stand: "West Stand",
-    block: "W1",
-    gate: "Gate 4",
-    format: "PHYSICAL",
-    faceValue: 500,
-    total: 5000,
-    reserved: 0,
-    available: 5000,
-    allocated: 30,
-    issued: 25,
-    returned: 0,
-    void: 0,
-  },
-  {
-    id: "8",
-    category: "MEDIA",
-    stand: "Media Centre",
-    block: "M1",
-    gate: "Gate 7",
-    format: "DIGITAL",
-    faceValue: 0,
-    total: 200,
-    reserved: 0,
-    available: 200,
-    allocated: 15,
-    issued: 15,
-    returned: 0,
-    void: 0,
-  },
-  {
-    id: "9",
-    category: "PLAYER_GUEST",
-    stand: "Player Pavilion",
-    block: "P1",
-    gate: "Gate 1",
-    format: "PHYSICAL",
-    faceValue: 0,
-    total: 300,
-    reserved: 100,
-    available: 200,
-    allocated: 0,
-    issued: 0,
-    returned: 0,
-    void: 0,
-  },
-  {
-    id: "10",
-    category: "STADIUM_OPS",
-    stand: "Operations Block",
-    block: "O1",
-    gate: "Gate 8",
-    format: "DIGITAL",
-    faceValue: 0,
-    total: 200,
-    reserved: 0,
-    available: 200,
-    allocated: 40,
-    issued: 40,
-    returned: 0,
-    void: 0,
-  },
-]
-
-// Calculate totals
-const totals = inventory.reduce((acc, item) => ({
-  total: acc.total + item.total,
-  reserved: acc.reserved + item.reserved,
-  available: acc.available + item.available,
-  allocated: acc.allocated + item.allocated,
-  issued: acc.issued + item.issued,
-  returned: acc.returned + item.returned,
-  void: acc.void + item.void,
-}), { total: 0, reserved: 0, available: 0, allocated: 0, issued: 0, returned: 0, void: 0 })
+const PAGE_SIZE = 25
 
 export default function InventoryPage() {
-  const { user, loading } = useSession()
-  const [search, setSearch] = React.useState("")
-  const [categoryFilter, setCategoryFilter] = React.useState("all")
+  const [search, setSearch] = useState("")
+  const [categoryId, setCategoryId] = useState("all")
+  const [page, setPage] = useState(1)
+  const { user } = useSession()
+  const [editing, setEditing] = useState<(typeof inventory)[number] | null>(null)
+  const [editTotal, setEditTotal] = useState("")
+  const [editError, setEditError] = useState("")
+  const [editSaving, setEditSaving] = useState(false)
+  const canAdjust = Boolean(user?.permissions.includes("inventory:adjust"))
 
-  if (loading) {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      </MainLayout>
-    )
+  async function saveInventory(event: React.FormEvent) {
+    event.preventDefault()
+    if (!editing) return
+    const totalQuantity = Number(editTotal)
+    if (!Number.isInteger(totalQuantity) || totalQuantity < 0) { setEditError("Enter a valid total quantity"); return }
+    setEditSaving(true)
+    setEditError("")
+    try {
+      const response = await fetch(`/api/inventory/${encodeURIComponent(editing.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ totalQuantity }) })
+      const body = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(body.error || "Unable to adjust inventory")
+      setEditing(null)
+      retry()
+    } catch (cause: unknown) { setEditError(cause instanceof Error ? cause.message : "Unable to adjust inventory") } finally { setEditSaving(false) }
+  }
+  const { data, loading, error, retry } = useOperationData(
+    (signal) => getInventory(signal, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, categoryId }),
+    [page, categoryId],
+  )
+
+  const inventory = data?.inventory ?? []
+  const query = search.trim().toLowerCase()
+  const filteredInventory = inventory.filter((item) =>
+    !query || [item.ticketCategory.name, item.ticketCategory.displayName, item.standName,
+      item.blockName, item.gateName, item.match.title, item.quotaPool?.displayName]
+      .some((value) => value?.toLowerCase().includes(query)),
+  )
+  const categories = Array.from(new Map(inventory.map((item) => [
+    item.ticketCategory.id,
+    { value: item.ticketCategory.id, label: item.ticketCategory.displayName },
+  ])).values()).sort((a, b) => a.label.localeCompare(b.label))
+  const categoryOptions = [
+    { value: "all", label: "All categories" },
+    ...categories,
+    ...(categoryId !== "all" && !categories.some((category) => category.value === categoryId)
+      ? [{ value: categoryId, label: "Selected category" }]
+      : []),
+  ]
+
+  function changeCategory(value: string) {
+    setCategoryId(value)
+    setPage(1)
   }
 
-  const categories = [...new Set(inventory.map(i => i.category))]
-  const filteredInventory = inventory.filter((item) => {
-    const matchesSearch = item.category.toLowerCase().includes(search.toLowerCase()) ||
-      item.stand.toLowerCase().includes(search.toLowerCase()) ||
-      item.block.toLowerCase().includes(search.toLowerCase())
-    const matchesCategory = categoryFilter === "all" || item.category === categoryFilter
-    return matchesSearch && matchesCategory
-  })
+  function clearFilters() {
+    setSearch("")
+    setCategoryId("all")
+    setPage(1)
+  }
+
+  const summary = data?.summary
+  const metrics = summary ? [
+    { label: "Total stock", value: summary.total, icon: Boxes, tone: "blue" as const },
+    { label: "Available", value: summary.available, icon: CheckCircle2, tone: "green" as const },
+    { label: "Allocated", value: summary.allocated, icon: Package, tone: "violet" as const },
+    { label: "Reserved", value: summary.reserved, icon: Archive, tone: "amber" as const },
+    { label: "Issued", value: summary.issued, icon: Ticket, tone: "default" as const },
+    { label: "Returned", value: summary.returned, icon: ArrowLeft, tone: "default" as const },
+    { label: "Void", value: summary.void, icon: XCircle, tone: "red" as const },
+  ] : []
 
   return (
     <MainLayout>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Ticket Inventory</h1>
-            <p className="text-muted-foreground">Manage ticket stock for all matches</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" asChild>
-              <Link href="/inventory/import">
-                <Upload className="h-4 w-4 mr-2" />
-                Import
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/inventory/export">
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link href="/inventory/new">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Inventory
-              </Link>
-            </Button>
-          </div>
-        </div>
-
-        {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-4 lg:grid-cols-7">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Stock</p>
-                  <p className="text-2xl font-bold">{formatNumber(totals.total)}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-blue-100">
-                  <Ticket className="text-blue-600 h-6 w-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Reserved</p>
-                  <p className="text-2xl font-bold text-yellow-600">{formatNumber(totals.reserved)}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-yellow-100">
-                  <AlertTriangle className="text-yellow-600 h-6 w-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Available</p>
-                  <p className="text-2xl font-bold text-green-600">{formatNumber(totals.available)}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-green-100">
-                  <CheckCircle className="text-green-600 h-6 w-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Allocated</p>
-                  <p className="text-2xl font-bold text-blue-600">{formatNumber(totals.allocated)}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-blue-100">
-                  <Package className="text-blue-600 h-6 w-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Issued</p>
-                  <p className="text-2xl font-bold text-purple-600">{formatNumber(totals.issued)}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-purple-100">
-                  <Truck className="text-purple-600 h-6 w-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Returned</p>
-                  <p className="text-2xl font-bold text-gray-600">{formatNumber(totals.returned)}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-gray-100">
-                  <ArrowLeft className="text-gray-600 h-6 w-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Void</p>
-                  <p className="text-2xl font-bold text-red-600">{formatNumber(totals.void)}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-red-100">
-                  <XCircle className="text-red-600 h-6 w-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search by category, stand, block..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10"
+      <div className="space-y-5">
+        <PageHeader
+          title="Ticket Inventory"
+          description="Ticket stock and movement by match, category, and seating location."
+          onRefresh={retry}
+          refreshing={loading}
+        />
+        {loading && !summary ? <MetricSkeleton /> : error ? null : summary && (
+          <section aria-labelledby="inventory-totals">
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <h2 id="inventory-totals" className="text-sm font-semibold">Stock totals</h2>
+              <p className="text-xs text-muted-foreground">Current page · {inventory.length} pools{data && data.total > inventory.length ? ` of ${data.total}` : ""}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
+              {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}
+            </div>
+          </section>
+        )}
+        <Card className="shadow-none">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              label="Filter inventory on this page"
+              placeholder="Filter this page by match, stand, or block…"
+            />
+            <FilterSelect value={categoryId} onChange={changeCategory} label="Category" options={categoryOptions} />
+          </CardContent>
+        </Card>
+        <Card className="shadow-none">
+          <CardHeader className="p-4 pb-3">
+            <CardTitle className="text-lg">Inventory pools</CardTitle>
+            <CardDescription>{data ? `${formatNumber(data.total)} inventory pools` : "Live inventory records"}</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <DataState loading={loading} error={error} onRetry={retry} skeleton={<TableSkeleton rows={6} />}>
+              {filteredInventory.length === 0 ? (
+                <EmptyState
+                  icon={<Boxes className="h-10 w-10" />}
+                  title={query || categoryId !== "all" ? "No matching inventory" : "No inventory recorded"}
+                  description={query
+                    ? "No pools on this page match your search. Try another page or clear the search."
+                    : categoryId !== "all"
+                      ? "There are no pools in the selected category."
+                      : "Inventory pools will appear here when stock is added."}
+                  onClear={query || categoryId !== "all" ? clearFilters : undefined}
                 />
-              </div>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="flex h-10 w-[200px] items-center rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="all">All Categories</option>
-                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-              </select>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Inventory Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Inventory Details ({inventory.length} pools)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Stand</TableHead>
-                    <TableHead>Block</TableHead>
-                    <TableHead>Gate</TableHead>
-                    <TableHead>Format</TableHead>
-                    <TableHead className="text-right">Face Value</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Reserved</TableHead>
-                    <TableHead className="text-right">Available</TableHead>
-                    <TableHead className="text-right">Allocated</TableHead>
-                    <TableHead className="text-right">Issued</TableHead>
-                    <TableHead className="text-right">Returned</TableHead>
-                    <TableHead className="text-right">Void</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredInventory.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <Badge variant="secondary">{item.category}</Badge>
-                      </TableCell>
-                      <TableCell>{item.stand}</TableCell>
-                      <TableCell>{item.block}</TableCell>
-                      <TableCell>{item.gate}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={item.format === "DIGITAL" ? "bg-purple-100 text-purple-700" : ""}>
-                          {item.format}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">₹{formatNumber(item.faceValue)}</TableCell>
-                      <TableCell className="text-right font-medium">{formatNumber(item.total)}</TableCell>
-                      <TableCell className="text-right text-yellow-600">{formatNumber(item.reserved)}</TableCell>
-                      <TableCell className="text-right text-green-600 font-medium">{formatNumber(item.available)}</TableCell>
-                      <TableCell className="text-right text-blue-600">{formatNumber(item.allocated)}</TableCell>
-                      <TableCell className="text-right text-purple-600">{formatNumber(item.issued)}</TableCell>
-                      <TableCell className="text-right text-gray-600">{formatNumber(item.returned)}</TableCell>
-                      <TableCell className="text-right text-red-600">{formatNumber(item.void)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" asChild>
-                            <Link href={`/inventory/${item.id}`}>
-                              <Eye className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" asChild>
-                            <Link href={`/inventory/${item.id}/edit`}>
-                              <Edit className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                        </div>
-                      </TableCell>
+              ) : (
+                <Table>
+                  <TableCaption className="sr-only">Inventory quantities by category and location</TableCaption>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead scope="col">Category &amp; match</TableHead>
+                      <TableHead scope="col">Location</TableHead>
+                      <TableHead scope="col">Format</TableHead>
+                      <TableHead scope="col" className="text-right">Face value</TableHead>
+                      <TableHead scope="col" className="text-right">Total</TableHead>
+                      <TableHead scope="col" className="text-right">Available</TableHead>
+                      <TableHead scope="col" className="text-right">Allocated</TableHead>
+                      <TableHead scope="col" className="text-right">Reserved</TableHead>
+                      <TableHead scope="col" className="text-right">Issued</TableHead>
+                      <TableHead scope="col" className="text-right">Returned / void</TableHead>
+                      {canAdjust && <TableHead scope="col"><span className="sr-only">Actions</span></TableHead>}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Category Summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Summary by Category</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Category</TableHead>
-                    <TableHead className="text-right">Total Stock</TableHead>
-                    <TableHead className="text-right">Reserved</TableHead>
-                    <TableHead className="text-right">Available</TableHead>
-                    <TableHead className="text-right">Allocated</TableHead>
-                    <TableHead className="text-right">Issued</TableHead>
-                    <TableHead className="text-right">Utilization</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {categories.map((cat) => {
-                    const catItems = inventory.filter(i => i.category === cat)
-                    const catTotals = catItems.reduce((acc, item) => ({
-                      total: acc.total + item.total,
-                      reserved: acc.reserved + item.reserved,
-                      available: acc.available + item.available,
-                      allocated: acc.allocated + item.allocated,
-                      issued: acc.issued + item.issued,
-                    }), { total: 0, reserved: 0, available: 0, allocated: 0, issued: 0 })
-                    const utilizationNum = catTotals.total > 0 ? ((catTotals.allocated + catTotals.issued) / catTotals.total * 100) : 0
-                    const utilization = utilizationNum.toFixed(1)
-                    return (
-                      <TableRow key={cat}>
-                        <TableCell><Badge variant="secondary">{cat}</Badge></TableCell>
-                        <TableCell className="text-right">{formatNumber(catTotals.total)}</TableCell>
-                        <TableCell className="text-right">{formatNumber(catTotals.reserved)}</TableCell>
-                        <TableCell className="text-right text-green-600">{formatNumber(catTotals.available)}</TableCell>
-                        <TableCell className="text-right text-blue-600">{formatNumber(catTotals.allocated)}</TableCell>
-                        <TableCell className="text-right text-purple-600">{formatNumber(catTotals.issued)}</TableCell>
-                        <TableCell className="text-right font-medium">
-                          <Badge variant={utilizationNum > 80 ? "destructive" : utilizationNum > 50 ? "default" : "success"}>
-                            {utilization}%
-                          </Badge>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredInventory.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="min-w-52">
+                          <Badge variant="secondary">{item.ticketCategory.displayName}</Badge>
+                          <p className="mt-1.5 max-w-60 text-xs text-muted-foreground">{item.match.title}</p>
+                          {item.quotaPool && <p className="mt-1 text-xs text-muted-foreground">Quota: {item.quotaPool.displayName}</p>}
                         </TableCell>
+                        <TableCell className="min-w-40">
+                          <div className="font-medium">{item.standName}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {[item.blockName && `Block ${item.blockName}`, item.gateName].filter(Boolean).join(" · ") || "Location details not specified"}
+                          </div>
+                        </TableCell>
+                        <TableCell><Badge variant="outline">{item.ticketFormat}</Badge></TableCell>
+                        <TableCell className="text-right tabular-nums">{item.faceValue === null ? "—" : formatCurrency(item.faceValue)}</TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">{formatNumber(item.totalQuantity)}</TableCell>
+                        <TableCell className="text-right font-medium tabular-nums text-green-700 dark:text-green-400">{formatNumber(item.availableQuantity)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(item.allocatedQuantity)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(item.reservedQuantity)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(item.issuedQuantity)}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{formatNumber(item.returnedQuantity)} / {formatNumber(item.voidQuantity)}</TableCell>
+                        {canAdjust && <TableCell><Button variant="ghost" size="icon" aria-label={`Edit inventory ${item.standName}`} onClick={() => { setEditing(item); setEditTotal(String(item.totalQuantity)); setEditError("") }}><Pencil className="h-4 w-4" /></Button></TableCell>}
                       </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </DataState>
           </CardContent>
+          {data && !error && !loading && (
+            <Pagination page={page} pageSize={PAGE_SIZE} total={data.total} itemCount={filteredInventory.length} onPageChange={setPage} filtered={Boolean(query)} />
+          )}
         </Card>
       </div>
+      <Dialog open={Boolean(editing)} onOpenChange={(open) => { if (!open) setEditing(null) }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Adjust inventory</DialogTitle><DialogDescription>{editing?.ticketCategory.displayName} · {editing?.standName}. Total stock cannot fall below allocated, issued, or void tickets.</DialogDescription></DialogHeader>
+          <form onSubmit={saveInventory} className="space-y-4">
+            <div className="space-y-2"><Label htmlFor="inventory-total">Total quantity</Label><Input id="inventory-total" type="number" min={0} required value={editTotal} onChange={(event) => setEditTotal(event.target.value)} /></div>
+            {editError && <p role="alert" className="text-sm text-destructive">{editError}</p>}
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" disabled={editSaving}>{editSaving ? "Saving…" : "Save quantity"}</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   )
 }
-
-// Missing imports
-import { Package, Truck, ArrowLeft, XCircle } from "lucide-react"

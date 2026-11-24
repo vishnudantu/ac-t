@@ -11,48 +11,122 @@ datasource db {
 }
 
 // ============================================
+// USER MANAGEMENT & RBAC
+// ============================================
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  displayName String
+  description String?
+  isSystem    Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions     RolePermission[]
+  assignments     RoleAssignment[]
+  approvalSteps   ApprovalStep[]
+  stepDefinitions ApprovalStepDefinition[]
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  displayName String
+  description String?
+  category    String
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model RoleAssignment {
+  id         String    @id @default(cuid())
+  userId     String
+  roleId     String
+  assignedBy String?
+  assignedAt DateTime  @default(now())
+  expiresAt  DateTime?
+  scope      String    @default("GLOBAL")
+  matchId    String?
+  isActive   Boolean   @default(true)
+
+  user     User   @relation("RoleAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  role     Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assigner User?  @relation("RoleAssignmentAssignedBy", fields: [assignedBy], references: [id], onDelete: SetNull)
+  match    Match? @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([roleId])
+  @@index([matchId])
+}
+
+model SessionToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+// ============================================
 // CORE MODELS
 // ============================================
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String
-  fullName      String
-  mobileNumber  String?   @unique
-  designation   String?
-  department    String?
-  employeeId    String?   @unique
-  isActive      Boolean   @default(true)
-  mfaEnabled    Boolean   @default(false)
-  mfaSecret     String?
-  lastLoginAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  mobileNumber String?   @unique
+  designation  String?
+  department   String?
+  employeeId   String?   @unique
+  isActive     Boolean   @default(true)
+  mfaEnabled   Boolean   @default(false)
+  mfaSecret    String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  roleAssignments      RoleAssignment[]
-  createdRequests      Request[]              @relation("RequestCreatedBy")
-  assignedRequests     Request[]              @relation("RequestAssignedTo")
-  approvalDecisions    ApprovalDecision[]
-  allocations          Allocation[]           @relation("AllocationOfficer")
-  distributions        TicketIssuance[]       @relation("DistributionOfficer")
-  handoversGiven       TicketHandover[]       @relation("HandoverFromOfficer")
-  handoversReceived    TicketHandover[]       @relation("HandoverToOfficer")
-  returnsReturned      TicketReturn[]         @relation("ReturnedByUser")
-  returnsReceived      TicketReturn[]         @relation("ReceivedByUser")
-  auditEvents          AuditEvent[]
-  importJobs           ImportJob[]
-  exportJobs           ExportJob[]
-  notificationLogs     NotificationLog[]
-  sessionTokens        SessionToken[]
-
-  @@index([email])
-  @@index([mobileNumber])
-  @@index([isActive])
-}
-  createdImportJobs    ImportJob[]            @relation("ImportJobCreatedBy")
-  createdExportJobs    ExportJob[]            @relation("ExportJobCreatedBy")
-  auditEventsOwned     AuditEvent[]           @relation("AuditEventUser")
+  roleAssignments       RoleAssignment[]    @relation("RoleAssignmentUser")
+  assignedRoles         RoleAssignment[]    @relation("RoleAssignmentAssignedBy")
+  createdRequests       Request[]           @relation("RequestCreatedBy")
+  assignedRequests      Request[]           @relation("RequestAssignedTo")
+  administeredMatches   Match[]             @relation("MatchAdministrator")
+  ownedQuotas           QuotaPool[]         @relation("QuotaOwner")
+  requestComments       RequestComment[]
+  requestReminders      RequestReminder[]
+  assignedApprovalSteps ApprovalStep[]      @relation("ApprovalStepAssignedTo")
+  approvalDecisions     ApprovalDecision[]
+  allocations           Allocation[]        @relation("AllocationOfficer")
+  distributionBatches   DistributionBatch[] @relation("DistributionBatchOfficer")
+  distributions         TicketIssuance[]    @relation("TicketIssuanceDistributedBy")
+  handoversGiven        TicketHandover[]    @relation("HandoverFromOfficer")
+  handoversReceived     TicketHandover[]    @relation("HandoverToOfficer")
+  returnsReturned       TicketReturn[]      @relation("ReturnedByUser")
+  returnsReceived       TicketReturn[]      @relation("ReceivedByUser")
+  auditEvents           AuditEvent[]        @relation("AuditEventUser")
+  importJobs            ImportJob[]         @relation("ImportJobCreatedBy")
+  exportJobs            ExportJob[]         @relation("ExportJobCreatedBy")
+  notificationLogs      NotificationLog[]
+  sessionTokens         SessionToken[]
 
   @@index([email])
   @@index([mobileNumber])
@@ -65,7 +139,7 @@ model User {
 
 model Venue {
   id          String   @id @default(cuid())
-  name        String
+  name        String   @unique
   shortName   String
   city        String
   state       String
@@ -81,42 +155,46 @@ model Venue {
 }
 
 model Match {
-  id                    String   @id @default(cuid())
-  title                 String
-  tournament            String?
-  format                String
-  matchDate             DateTime
-  startTime             String
-  venueId               String
-  status                String   @default("UPCOMING")
-  requestOpensAt        DateTime?
-  requestClosesAt       DateTime?
-  approvalDeadline      DateTime?
-  allocationDeadline    DateTime?
-  distributionDeadline  DateTime?
-  matchAdminId          String?
-  totalInventory        Int      @default(0)
-  notes                 String?
-  restrictions          String?
+  id                      String    @id @default(cuid())
+  title                   String
+  tournament              String?
+  format                  String
+  matchDate               DateTime
+  startTime               String
+  venueId                 String
+  status                  String    @default("UPCOMING")
+  requestOpensAt          DateTime?
+  requestClosesAt         DateTime?
+  approvalDeadline        DateTime?
+  allocationDeadline      DateTime?
+  distributionDeadline    DateTime?
+  matchAdminId            String?
+  totalInventory          Int       @default(0)
+  notes                   String?
+  restrictions            String?
   operationalInstructions String?
-  clonedFromMatchId     String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt()
+  clonedFromMatchId       String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt()
 
-  venue           Venue      @relation(fields: [venueId], references: [id])
-  matchAdmin      User?      @relation(fields: [matchAdminId], references: [id], onDelete: SetNull)
-  clonedFrom      Match?     @relation("MatchClone", fields: [clonedFromMatchId], references: [id], onDelete: SetNull)
-  clonedMatches   Match[]    @relation("MatchClone")
-  requests        Request[]
-  ticketCategories TicketCategory[]
-  inventoryPools  InventoryPool[]
-  quotaPools      QuotaPool[]
-  approvalWorkflows ApprovalWorkflow[]
-  allocationItems AllocationItem[]
-  distributions   TicketIssuance[]
-  auditEvents     AuditEvent[]
-  importJobs      ImportJob[]
-  exportJobs      ExportJob[]
+  venue               Venue               @relation(fields: [venueId], references: [id])
+  matchAdmin          User?               @relation("MatchAdministrator", fields: [matchAdminId], references: [id], onDelete: SetNull)
+  clonedFrom          Match?              @relation("MatchClone", fields: [clonedFromMatchId], references: [id], onDelete: SetNull)
+  clonedMatches       Match[]             @relation("MatchClone")
+  requests            Request[]
+  roleAssignments     RoleAssignment[]
+  allocations         Allocation[]
+  distributionBatches DistributionBatch[]
+  handovers           TicketHandover[]
+  ticketCategories    TicketCategory[]
+  inventoryPools      InventoryPool[]
+  quotaPools          QuotaPool[]
+  approvalWorkflows   ApprovalWorkflow[]
+  sessions            MatchSession[]
+  distributions       TicketIssuance[]
+  auditEvents         AuditEvent[]
+  importJobs          ImportJob[]
+  exportJobs          ExportJob[]
 
   @@index([matchDate])
   @@index([status])
@@ -133,7 +211,7 @@ model MatchSession {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  match            Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
   ticketValidities TicketValidity[]
 
   @@unique([matchId, sessionName])
@@ -145,13 +223,13 @@ model MatchSession {
 // ============================================
 
 model TicketValidity {
-  id               String @id @default(cuid())
+  id               String  @id @default(cuid())
   ticketCategoryId String
   matchSessionId   String
   isValid          Boolean @default(true)
 
   ticketCategory TicketCategory @relation(fields: [ticketCategoryId], references: [id], onDelete: Cascade)
-  matchSession   MatchSession @relation(fields: [matchSessionId], references: [id], onDelete: Cascade)
+  matchSession   MatchSession   @relation(fields: [matchSessionId], references: [id], onDelete: Cascade)
 
   @@unique([ticketCategoryId, matchSessionId])
 }
@@ -161,41 +239,41 @@ model TicketValidity {
 // ============================================
 
 model Organisation {
-  id              String   @id @default(cuid())
-  name            String
-  shortName       String?
-  category        String
-  parentOrgId     String?
-  quotaPoolId     String?
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  id          String   @id @default(cuid())
+  name        String   @unique
+  shortName   String?
+  category    String
+  parentOrgId String?
+  quotaPoolId String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt()
 
-  parentOrg   Organisation?   @relation("OrgHierarchy", fields: [parentOrgId], references: [id])
-  childOrgs   Organisation[]  @relation("OrgHierarchy")
-  requesters  Requester[]
-  quotaPool   QuotaPool?      @relation("OrgQuotaPool", fields: [quotaPoolId], references: [id], onDelete: SetNull)
+  parentOrg  Organisation?  @relation("OrgHierarchy", fields: [parentOrgId], references: [id])
+  childOrgs  Organisation[] @relation("OrgHierarchy")
+  requesters Requester[]
+  quotaPool  QuotaPool?     @relation("OrgQuotaPool", fields: [quotaPoolId], references: [id], onDelete: SetNull)
 
   @@index([category])
   @@index([parentOrgId])
 }
 
 model Requester {
-  id              String   @id @default(cuid())
-  fullName        String
-  mobileNumber    String
-  email           String?
-  designation     String?
-  organisationId  String?
-  requesterCategory String
-  protocolLevel   Int      @default(0)
-  contactPreference String  @default("PHONE")
+  id                  String   @id @default(cuid())
+  fullName            String
+  mobileNumber        String
+  email               String?
+  designation         String?
+  organisationId      String?
+  requesterCategory   String
+  protocolLevel       Int      @default(0)
+  contactPreference   String   @default("PHONE")
   specialInstructions String?
-  internalNotes   String?
-  isVerified      Boolean  @default(false)
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  internalNotes       String?
+  isVerified          Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt()
 
   organisation Organisation? @relation(fields: [organisationId], references: [id], onDelete: SetNull)
   requests     Request[]
@@ -208,12 +286,12 @@ model Requester {
 }
 
 model RequesterMergeLog {
-  id            String   @id @default(cuid())
+  id                String   @id @default(cuid())
   sourceRequesterId String
   targetRequesterId String
-  mergedBy      String
-  mergedAt      DateTime @default(now())
-  reason        String
+  mergedBy          String
+  mergedAt          DateTime @default(now())
+  reason            String
 
   @@index([sourceRequesterId])
   @@index([targetRequesterId])
@@ -236,11 +314,12 @@ model TicketCategory {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt()
 
-  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  inventoryPools InventoryPool[]
-  requestItems RequestItem[]
+  match            Match             @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  inventoryPools   InventoryPool[]
+  requestItems     RequestItem[]
   quotaAllocations QuotaAllocation[]
-  allocations AllocationItem[]
+  quotaTransfers   QuotaTransfer[]
+  allocations      AllocationItem[]
   ticketValidities TicketValidity[]
 
   @@unique([matchId, name])
@@ -269,35 +348,35 @@ model InventoryPool {
   returnedQuantity  Int      @default(0)
   voidQuantity      Int      @default(0)
   isQuotaPool       Boolean  @default(false)
-  quotaPoolId     String?
+  quotaPoolId       String?
   notes             String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt()
 
-  match           Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  ticketCategory  TicketCategory @relation(fields: [ticketCategoryId], references: [id], onDelete: Cascade)
-  quotaPool       QuotaPool? @relation(fields: [quotaPoolId], references: [id], onDelete: SetNull)
-  ticketSerials   TicketSerial[]
-  allocations     AllocationItem[]
+  match          Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  ticketCategory TicketCategory   @relation(fields: [ticketCategoryId], references: [id], onDelete: Cascade)
+  quotaPool      QuotaPool?       @relation(fields: [quotaPoolId], references: [id], onDelete: SetNull)
+  ticketSerials  TicketSerial[]
+  allocations    AllocationItem[]
 
   @@index([matchId, ticketCategoryId])
   @@index([quotaPoolId])
 }
 
 model TicketSerial {
-  id               String   @id @default(cuid())
-  inventoryPoolId  String
-  serialNumber     String
-  barcode          String?
-  qrCode           String?
-  status           String   @default("AVAILABLE")
-  allocatedToId    String?
-  issuedToId       String?
-  issuedAt         DateTime?
-  voidedAt         DateTime?
-  voidReason       String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt()
+  id              String    @id @default(cuid())
+  inventoryPoolId String
+  serialNumber    String
+  barcode         String?
+  qrCode          String?
+  status          String    @default("AVAILABLE")
+  allocatedToId   String?
+  issuedToId      String?
+  issuedAt        DateTime?
+  voidedAt        DateTime?
+  voidReason      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt()
 
   inventoryPool InventoryPool @relation(fields: [inventoryPoolId], references: [id], onDelete: Cascade)
 
@@ -311,28 +390,29 @@ model TicketSerial {
 // ============================================
 
 model QuotaPool {
-  id              String   @id @default(cuid())
-  matchId         String
-  name            String
-  displayName     String
-  description     String?
-  ownerId         String?
-  parentQuotaId   String?
-  totalAllocation Int      @default(0)
-  consumedQuantity Int     @default(0)
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  id               String   @id @default(cuid())
+  matchId          String
+  name             String
+  displayName      String
+  description      String?
+  ownerId          String?
+  parentQuotaId    String?
+  totalAllocation  Int      @default(0)
+  consumedQuantity Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt()
 
-  match           Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  owner           User? @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  parentQuota     QuotaPool? @relation("QuotaHierarchy", fields: [parentQuotaId], references: [id])
-  childQuotas     QuotaPool[] @relation("QuotaHierarchy")
-  quotaAllocations QuotaAllocation[]
-  quotaTransfersFrom QuotaTransfer[] @relation("FromQuota")
-  quotaTransfersTo   QuotaTransfer[] @relation("ToQuota")
-  inventoryPools  InventoryPool[]
-  organisations   Organisation[] @relation("OrgQuotaPool")
+  match              Match             @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  owner              User?             @relation("QuotaOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  parentQuota        QuotaPool?        @relation("QuotaHierarchy", fields: [parentQuotaId], references: [id])
+  childQuotas        QuotaPool[]       @relation("QuotaHierarchy")
+  quotaAllocations   QuotaAllocation[]
+  quotaTransfersFrom QuotaTransfer[]   @relation("FromQuota")
+  quotaTransfersTo   QuotaTransfer[]   @relation("ToQuota")
+  allocationItems    AllocationItem[]  @relation("AllocationQuotaPool")
+  inventoryPools     InventoryPool[]
+  organisations      Organisation[]    @relation("OrgQuotaPool")
 
   @@unique([matchId, name])
   @@index([matchId])
@@ -340,15 +420,15 @@ model QuotaPool {
 }
 
 model QuotaAllocation {
-  id              String   @id @default(cuid())
-  quotaPoolId     String
-  ticketCategoryId String
-  allocatedQuantity Int    @default(0)
-  consumedQuantity  Int    @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  id                String   @id @default(cuid())
+  quotaPoolId       String
+  ticketCategoryId  String
+  allocatedQuantity Int      @default(0)
+  consumedQuantity  Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt()
 
-  quotaPool      QuotaPool @relation(fields: [quotaPoolId], references: [id], onDelete: Cascade)
+  quotaPool      QuotaPool      @relation(fields: [quotaPoolId], references: [id], onDelete: Cascade)
   ticketCategory TicketCategory @relation(fields: [ticketCategoryId], references: [id], onDelete: Cascade)
 
   @@unique([quotaPoolId, ticketCategoryId])
@@ -356,21 +436,21 @@ model QuotaAllocation {
 }
 
 model QuotaTransfer {
-  id            String   @id @default(cuid())
-  fromQuotaId   String
-  toQuotaId     String
+  id               String    @id @default(cuid())
+  fromQuotaId      String
+  toQuotaId        String
   ticketCategoryId String
-  quantity      Int
-  reason        String
-  requestedBy   String
-  approvedBy    String?
-  approvedAt    DateTime?
-  status        String   @default("PENDING")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt()
+  quantity         Int
+  reason           String
+  requestedBy      String
+  approvedBy       String?
+  approvedAt       DateTime?
+  status           String    @default("PENDING")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt()
 
-  fromQuota      QuotaPool @relation("FromQuota", fields: [fromQuotaId], references: [id], onDelete: Cascade)
-  toQuota        QuotaPool @relation("ToQuota", fields: [toQuotaId], references: [id], onDelete: Cascade)
+  fromQuota      QuotaPool      @relation("FromQuota", fields: [fromQuotaId], references: [id], onDelete: Cascade)
+  toQuota        QuotaPool      @relation("ToQuota", fields: [toQuotaId], references: [id], onDelete: Cascade)
   ticketCategory TicketCategory @relation(fields: [ticketCategoryId], references: [id], onDelete: Cascade)
 
   @@index([fromQuotaId, status])
@@ -382,47 +462,49 @@ model QuotaTransfer {
 // ============================================
 
 model Request {
-  id                  String   @id @default(cuid())
-  requestNumber       String   @unique
-  matchId             String
-  requesterId         String
-  createdById         String
-  assignedToId        String?
-  source              String
-  sourceReference     String?
-  priority            String   @default("NORMAL")
+  id                     String    @id @default(cuid())
+  requestNumber          String    @unique
+  matchId                String
+  requesterId            String
+  createdById            String
+  assignedToId           String?
+  source                 String
+  sourceReference        String?
+  priority               String    @default("NORMAL")
   protocolClassification String?
-  status              String   @default("DRAFT")
-  fulfilmentStatus    String   @default("PENDING")
+  status                 String    @default("DRAFT")
+  fulfilmentStatus       String    @default("PENDING")
   requiredDeliveryMethod String?
-  preferredStand      String?
-  preferredType       String?
-  purpose             String?
-  specialInstructions String?
-  internalNotes       String?
-  submittedAt         DateTime?
-  approvedAt          DateTime?
-  rejectedAt          DateTime?
-  closedAt            DateTime?
-  totalRequested      Int      @default(0)
-  totalApproved       Int      @default(0)
-  totalAllocated      Int      @default(0)
-  totalIssued         Int      @default(0)
-  totalDelivered      Int      @default(0)
-  version             Int      @default(1)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt()
+  preferredStand         String?
+  preferredType          String?
+  purpose                String?
+  specialInstructions    String?
+  internalNotes          String?
+  submittedAt            DateTime?
+  approvedAt             DateTime?
+  rejectedAt             DateTime?
+  closedAt               DateTime?
+  totalRequested         Int       @default(0)
+  totalApproved          Int       @default(0)
+  totalAllocated         Int       @default(0)
+  totalIssued            Int       @default(0)
+  totalDelivered         Int       @default(0)
+  version                Int       @default(1)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt()
 
-  match          Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  requester      Requester @relation(fields: [requesterId], references: [id], onDelete: Cascade)
-  createdBy      User @relation("RequestCreatedBy", fields: [createdById], references: [id])
-  assignedTo     User? @relation("RequestAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
-  items          RequestItem[]
-  attachments    RequestAttachment[]
-  comments       RequestComment[]
-  approvalSteps  ApprovalStep[]
-  reminders      RequestReminder[]
-  auditEvents    AuditEvent[]
+  match             Match               @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  requester         Requester           @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+  createdBy         User                @relation("RequestCreatedBy", fields: [createdById], references: [id])
+  assignedTo        User?               @relation("RequestAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  items             RequestItem[]
+  attachments       RequestAttachment[]
+  comments          RequestComment[]
+  approvalSteps     ApprovalStep[]
+  approvalDecisions ApprovalDecision[]
+  allocations       Allocation[]
+  issuances         TicketIssuance[]
+  reminders         RequestReminder[]
 
   @@index([matchId, status])
   @@index([requesterId])
@@ -433,43 +515,45 @@ model Request {
 }
 
 model RequestItem {
-  id                 String   @id @default(cuid())
-  requestId          String
-  requesterId        String?
-  ticketCategoryId   String
-  requestedQuantity  Int
-  approvedQuantity   Int      @default(0)
-  allocatedQuantity  Int      @default(0)
-  issuedQuantity     Int      @default(0)
-  deliveredQuantity  Int      @default(0)
-  preferredStand     String?
-  preferredBlock     String?
-  priority           Int      @default(0)
-  notes              String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt()
+  id                String   @id @default(cuid())
+  requestId         String
+  requesterId       String?
+  ticketCategoryId  String
+  requestedQuantity Int
+  approvedQuantity  Int      @default(0)
+  allocatedQuantity Int      @default(0)
+  issuedQuantity    Int      @default(0)
+  deliveredQuantity Int      @default(0)
+  preferredStand    String?
+  preferredBlock    String?
+  priority          Int      @default(0)
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt()
 
-  request        Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  requester      Requester? @relation(fields: [requesterId], references: [id], onDelete: SetNull)
-  ticketCategory TicketCategory @relation(fields: [ticketCategoryId], references: [id], onDelete: Cascade)
-  allocations    AllocationItem[]
+  request           Request            @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requester         Requester?         @relation(fields: [requesterId], references: [id], onDelete: SetNull)
+  ticketCategory    TicketCategory     @relation(fields: [ticketCategoryId], references: [id], onDelete: Cascade)
+  allocations       AllocationItem[]
+  approvalDecisions ApprovalDecision[]
+  issuances         TicketIssuance[]
 
   @@index([requestId])
   @@index([ticketCategoryId])
 }
 
 model RequestAttachment {
-  id           String   @id @default(cuid())
-  requestId    String
-  fileName     String
-  originalName String
-  mimeType     String
-  fileSize     Int
-  storagePath  String
-  uploadedBy   String
-  description  String?
-  isConfidential Boolean @default(false)
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  requestId      String
+  fileName       String
+  originalName   String
+  mimeType       String
+  fileSize       Int
+  storagePath    String
+  uploadedBy     String
+  description    String?
+  isConfidential Boolean  @default(false)
+  createdAt      DateTime @default(now())
 
   request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
@@ -477,33 +561,33 @@ model RequestAttachment {
 }
 
 model RequestComment {
-  id        String   @id @default(cuid())
-  requestId String
-  authorId  String
-  content   String
-  isInternal Boolean @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt()
+  id         String   @id @default(cuid())
+  requestId  String
+  authorId   String
+  content    String
+  isInternal Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt()
 
   request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  author  User @relation(fields: [authorId], references: [id])
+  author  User    @relation(fields: [authorId], references: [id])
 
   @@index([requestId])
 }
 
 model RequestReminder {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   requestId   String
   userId      String
   title       String
   description String?
   remindAt    DateTime
-  isCompleted Boolean  @default(false)
+  isCompleted Boolean   @default(false)
   completedAt DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  user    User @relation(fields: [userId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
 
   @@index([requestId])
   @@index([userId, remindAt])
@@ -514,94 +598,98 @@ model RequestReminder {
 // ============================================
 
 model ApprovalWorkflow {
-  id              String   @id @default(cuid())
-  matchId         String
-  name            String
-  description     String?
-  isDefault       Boolean  @default(false)
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  id          String   @id @default(cuid())
+  matchId     String
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt()
 
-  match   Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  steps   ApprovalStepDefinition[]
+  match         Match                    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  steps         ApprovalStepDefinition[]
+  approvalSteps ApprovalStep[]           @relation("ApprovalWorkflowSteps")
 }
 
 model ApprovalStepDefinition {
-  id                   String   @id @default(cuid())
-  workflowId           String
-  stepOrder            Int
-  name                 String
-  description          String?
-  approverRoleId       String?
-  approverUserId       String?
-  departmentId         String?
-  quotaPoolId          String?
-  minQuantity          Int      @default(0)
-  maxQuantity          Int?
-  ticketCategoryId     String?
-  requiresAllApprovers Boolean  @default(false)
-  allowPartialApproval Boolean  @default(true)
-  allowReturnForClarification Boolean @default(true)
-  allowEscalation      Boolean  @default(true)
-  timeoutHours         Int?
-  isActive             Boolean  @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt()
+  id                          String   @id @default(cuid())
+  workflowId                  String
+  stepOrder                   Int
+  name                        String
+  description                 String?
+  approverRoleId              String?
+  approverUserId              String?
+  departmentId                String?
+  quotaPoolId                 String?
+  minQuantity                 Int      @default(0)
+  maxQuantity                 Int?
+  ticketCategoryId            String?
+  requiresAllApprovers        Boolean  @default(false)
+  allowPartialApproval        Boolean  @default(true)
+  allowReturnForClarification Boolean  @default(true)
+  allowEscalation             Boolean  @default(true)
+  timeoutHours                Int?
+  isActive                    Boolean  @default(true)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt()
 
-  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workflow      ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  approverRole  Role?            @relation(fields: [approverRoleId], references: [id], onDelete: SetNull)
+  approvalSteps ApprovalStep[]
 
   @@index([workflowId, stepOrder])
 }
 
 model ApprovalStep {
-  id                   String   @id @default(cuid())
-  requestId            String
-  workflowId           String
-  stepDefinitionId     String
-  stepOrder            Int
-  name                 String
-  status               String   @default("PENDING")
-  assignedToId         String?
-  assignedRoleId       String?
-  startedAt            DateTime?
-  completedAt          DateTime?
-  deadlineAt           DateTime?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt()
+  id               String    @id @default(cuid())
+  requestId        String
+  workflowId       String
+  stepDefinitionId String
+  stepOrder        Int
+  name             String
+  status           String    @default("PENDING")
+  assignedToId     String?
+  assignedRoleId   String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  deadlineAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt()
 
-  request           Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  workflow          ApprovalWorkflow @relation("ApprovalWorkflowSteps", fields: [workflowId], references: [id], onDelete: Cascade)
-  stepDefinition    ApprovalStepDefinition @relation(fields: [stepDefinitionId], references: [id], onDelete: Cascade)
-  assignedTo        User? @relation("ApprovalStepAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
-  decisions         ApprovalDecision[]
+  request        Request                @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  workflow       ApprovalWorkflow       @relation("ApprovalWorkflowSteps", fields: [workflowId], references: [id], onDelete: Cascade)
+  stepDefinition ApprovalStepDefinition @relation(fields: [stepDefinitionId], references: [id], onDelete: Cascade)
+  assignedRole   Role?                  @relation(fields: [assignedRoleId], references: [id], onDelete: SetNull)
+  assignedTo     User?                  @relation("ApprovalStepAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  decisions      ApprovalDecision[]
 
   @@index([requestId, stepOrder])
   @@index([assignedToId, status])
 }
 
 model ApprovalDecision {
-  id              String   @id @default(cuid())
-  stepId          String
-  requestId       String
-  requestItemId   String?
-  decidedById     String
-  action          String
-  requestedQty    Int
-  approvedQty     Int
-  rejectedQty     Int      @default(0)
-  remarks         String?
+  id                  String   @id @default(cuid())
+  stepId              String
+  requestId           String
+  requestItemId       String?
+  decidedById         String
+  action              String
+  requestedQty        Int
+  approvedQty         Int
+  rejectedQty         Int      @default(0)
+  remarks             String?
   confidentialRemarks String?
-  rulesApplied    String?
-  isException     Boolean  @default(false)
-  exceptionReason String?
+  rulesApplied        String?
+  isException         Boolean  @default(false)
+  exceptionReason     String?
   exceptionApprovedBy String?
-  createdAt       DateTime @default(now())
+  createdAt           DateTime @default(now())
 
-  step         ApprovalStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
-  request      Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  requestItem  RequestItem? @relation(fields: [requestItemId], references: [id], onDelete: SetNull)
-  decidedBy    User @relation(fields: [decidedById], references: [id])
+  step        ApprovalStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  request     Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requestItem RequestItem? @relation(fields: [requestItemId], references: [id], onDelete: SetNull)
+  decidedBy   User         @relation(fields: [decidedById], references: [id])
 
   @@index([stepId])
   @@index([requestId])
@@ -613,25 +701,25 @@ model ApprovalDecision {
 // ============================================
 
 model Allocation {
-  id              String   @id @default(cuid())
-  allocationNumber String  @unique
-  matchId         String
-  requestId       String
-  officerId       String
-  status          String   @default("DRAFT")
-  totalQuantity   Int      @default(0)
-  notes           String?
-  confirmedAt     DateTime?
-  confirmedBy     String?
-  lockedAt        DateTime?
-  lockedBy        String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  id               String    @id @default(cuid())
+  allocationNumber String    @unique
+  matchId          String
+  requestId        String
+  officerId        String
+  status           String    @default("DRAFT")
+  totalQuantity    Int       @default(0)
+  notes            String?
+  confirmedAt      DateTime?
+  confirmedBy      String?
+  lockedAt         DateTime?
+  lockedBy         String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt()
 
-  match     Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  officer   User @relation("AllocationOfficer", fields: [officerId], references: [id])
-  items     AllocationItem[]
+  match   Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  request Request          @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  officer User             @relation("AllocationOfficer", fields: [officerId], references: [id])
+  items   AllocationItem[]
 
   @@index([matchId, status])
   @@index([requestId])
@@ -640,32 +728,32 @@ model Allocation {
 }
 
 model AllocationItem {
-  id                 String   @id @default(cuid())
-  allocationId       String
-  requestItemId      String
-  inventoryPoolId    String
-  ticketCategoryId   String
-  quantity           Int
-  standName          String
-  blockName          String?
-  seatDetails        String?
-  serialRangeStart   String?
-  serialRangeEnd     String?
-  isFromQuota        Boolean  @default(false)
-  quotaPoolId        String?
-  status             String   @default("RESERVED")
-  reservedAt         DateTime @default(now())
-  confirmedAt        DateTime?
-  releasedAt         DateTime?
-  releaseReason      String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt()
+  id               String    @id @default(cuid())
+  allocationId     String
+  requestItemId    String
+  inventoryPoolId  String
+  ticketCategoryId String
+  quantity         Int
+  standName        String
+  blockName        String?
+  seatDetails      String?
+  serialRangeStart String?
+  serialRangeEnd   String?
+  isFromQuota      Boolean   @default(false)
+  quotaPoolId      String?
+  status           String    @default("RESERVED")
+  reservedAt       DateTime  @default(now())
+  confirmedAt      DateTime?
+  releasedAt       DateTime?
+  releaseReason    String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt()
 
-  allocation     Allocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
-  requestItem    RequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
-  inventoryPool  InventoryPool @relation(fields: [inventoryPoolId], references: [id], onDelete: Cascade)
-  ticketCategory TicketCategory @relation(fields: [ticketCategoryId], references: [id], onDelete: Cascade)
-  quotaPool      QuotaPool? @relation("AllocationQuotaPool", fields: [quotaPoolId], references: [id], onDelete: SetNull)
+  allocation     Allocation       @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  requestItem    RequestItem      @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+  inventoryPool  InventoryPool    @relation(fields: [inventoryPoolId], references: [id], onDelete: Cascade)
+  ticketCategory TicketCategory   @relation(fields: [ticketCategoryId], references: [id], onDelete: Cascade)
+  quotaPool      QuotaPool?       @relation("AllocationQuotaPool", fields: [quotaPoolId], references: [id], onDelete: SetNull)
   issuances      TicketIssuance[]
 
   @@index([allocationId])
@@ -678,24 +766,24 @@ model AllocationItem {
 // ============================================
 
 model DistributionBatch {
-  id              String   @id @default(cuid())
-  batchNumber     String   @unique
-  matchId         String
-  officerId       String
+  id                 String    @id @default(cuid())
+  batchNumber        String    @unique
+  matchId            String
+  officerId          String?
   distributionMethod String
-  status          String   @default("PREPARING")
-  totalTickets    Int      @default(0)
-  issuedTickets   Int      @default(0)
-  deliveredTickets Int     @default(0)
-  notes           String?
-  preparedAt      DateTime?
-  startedAt       DateTime?
-  completedAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  status             String    @default("PREPARING")
+  totalTickets       Int       @default(0)
+  issuedTickets      Int       @default(0)
+  deliveredTickets   Int       @default(0)
+  notes              String?
+  preparedAt         DateTime?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt()
 
-  match    Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  officer  User @relation("DistributionBatchOfficer", fields: [officerId], references: [id], onDelete: SetNull)
+  match     Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  officer   User?            @relation("DistributionBatchOfficer", fields: [officerId], references: [id], onDelete: SetNull)
   issuances TicketIssuance[]
 
   @@index([matchId, status])
@@ -704,43 +792,43 @@ model DistributionBatch {
 }
 
 model TicketIssuance {
-  id                  String   @id @default(cuid())
-  issuanceNumber      String   @unique
-  batchId             String?
-  allocationItemId    String
-  matchId             String
-  requestId           String
-  requestItemId       String
-  distributedById     String
-  distributionMethod  String
-  quantity            Int
-  ticketCategory      String
-  standName           String
-  blockName           String?
-  seatDetails         String?
-  serialNumbers       String[]
-  recipientName       String
-  recipientMobile     String?
-  recipientIdType     String?
-  recipientIdNumber   String?
-  recipientSignature  String?
-  acknowledgementRef  String?
-  issuedAt            DateTime @default(now())
-  deliveredAt         DateTime?
-  collectedAt         DateTime?
-  collectedBy         String?
-  status              String   @default("ISSUED")
-  notes               String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt()
+  id                 String    @id @default(cuid())
+  issuanceNumber     String    @unique
+  batchId            String?
+  allocationItemId   String
+  matchId            String
+  requestId          String
+  requestItemId      String
+  distributedById    String?
+  distributionMethod String
+  quantity           Int
+  ticketCategory     String
+  standName          String
+  blockName          String?
+  seatDetails        String?
+  serialNumbers      String[]
+  recipientName      String
+  recipientMobile    String?
+  recipientIdType    String?
+  recipientIdNumber  String?
+  recipientSignature String?
+  acknowledgementRef String?
+  issuedAt           DateTime  @default(now())
+  deliveredAt        DateTime?
+  collectedAt        DateTime?
+  collectedBy        String?
+  status             String    @default("ISSUED")
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt()
 
-  batch            DistributionBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
-  allocationItem   AllocationItem @relation(fields: [allocationItemId], references: [id], onDelete: Cascade)
-  match            Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  request          Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  requestItem      RequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
-  distributedBy    User @relation("TicketIssuanceDistributedBy", fields: [distributedById], references: [id], onDelete: SetNull)
-  returns          TicketReturn[]
+  batch          DistributionBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  allocationItem AllocationItem     @relation(fields: [allocationItemId], references: [id], onDelete: Cascade)
+  match          Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  request        Request            @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requestItem    RequestItem        @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+  distributedBy  User?              @relation("TicketIssuanceDistributedBy", fields: [distributedById], references: [id], onDelete: SetNull)
+  returns        TicketReturn[]
 
   @@index([batchId])
   @@index([allocationItemId])
@@ -751,27 +839,27 @@ model TicketIssuance {
 }
 
 model TicketHandover {
-  id              String   @id @default(cuid())
-  handoverNumber  String   @unique
-  fromOfficerId   String
-  toOfficerId     String
-  matchId         String
-  quantity        Int
+  id               String    @id @default(cuid())
+  handoverNumber   String    @unique
+  fromOfficerId    String?
+  toOfficerId      String?
+  matchId          String
+  quantity         Int
   serialRangeStart String?
   serialRangeEnd   String?
-  handoverType    String
-  status          String   @default("PENDING")
-  handedOverAt    DateTime @default(now())
-  acknowledgedAt  DateTime?
-  acknowledgedBy  String?
-  notes           String?
-  fromNotes       String?
-  toNotes         String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  handoverType     String
+  status           String    @default("PENDING")
+  handedOverAt     DateTime  @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedBy   String?
+  notes            String?
+  fromNotes        String?
+  toNotes          String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt()
 
-  fromOfficer User @relation("HandoverFromOfficer", fields: [fromOfficerId], references: [id], onDelete: SetNull)
-  toOfficer   User @relation("HandoverToOfficer", fields: [toOfficerId], references: [id], onDelete: SetNull)
+  fromOfficer User? @relation("HandoverFromOfficer", fields: [fromOfficerId], references: [id], onDelete: SetNull)
+  toOfficer   User? @relation("HandoverToOfficer", fields: [toOfficerId], references: [id], onDelete: SetNull)
   match       Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
 
   @@index([fromOfficerId])
@@ -781,24 +869,24 @@ model TicketHandover {
 }
 
 model TicketReturn {
-  id              String   @id @default(cuid())
-  issuanceId      String
-  returnedById    String
-  receivedById    String
-  quantity        Int
-  serialNumbers   String[]
-  returnReason    String
-  condition       String?
-  actionTaken     String?
-  returnedAt      DateTime @default(now())
-  processedAt     DateTime?
-  processedBy     String?
-  notes           String?
-  createdAt       DateTime @default(now())
+  id            String    @id @default(cuid())
+  issuanceId    String
+  returnedById  String?
+  receivedById  String?
+  quantity      Int
+  serialNumbers String[]
+  returnReason  String
+  condition     String?
+  actionTaken   String?
+  returnedAt    DateTime  @default(now())
+  processedAt   DateTime?
+  processedBy   String?
+  notes         String?
+  createdAt     DateTime  @default(now())
 
-  issuance    TicketIssuance @relation(fields: [issuanceId], references: [id], onDelete: Cascade)
-  returnedBy  User @relation("ReturnedByUser", fields: [returnedById], references: [id], onDelete: SetNull)
-  receivedBy  User @relation("ReceivedByUser", fields: [receivedById], references: [id], onDelete: SetNull)
+  issuance   TicketIssuance @relation(fields: [issuanceId], references: [id], onDelete: Cascade)
+  returnedBy User?          @relation("ReturnedByUser", fields: [returnedById], references: [id], onDelete: SetNull)
+  receivedBy User?          @relation("ReceivedByUser", fields: [receivedById], references: [id], onDelete: SetNull)
 
   @@index([issuanceId])
   @@index([returnedById])
@@ -810,38 +898,38 @@ model TicketReturn {
 // ============================================
 
 model NotificationTemplate {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  name        String
-  channel     String
-  subject     String?
-  body        String
-  variables   String[]
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt()
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  channel   String
+  subject   String?
+  body      String
+  variables String[]
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt()
 
   logs NotificationLog[]
 }
 
 model NotificationLog {
-  id              String   @id @default(cuid())
-  templateId      String?
-  recipientId     String
-  channel         String
-  subject         String?
-  body            String
-  status          String   @default("PENDING")
-  provider        String?
-  providerId      String?
-  errorMessage    String?
-  retryCount      Int      @default(0)
-  sentAt          DateTime?
-  deliveredAt     DateTime?
-  createdAt       DateTime @default(now())
+  id           String    @id @default(cuid())
+  templateId   String?
+  recipientId  String
+  channel      String
+  subject      String?
+  body         String
+  status       String    @default("PENDING")
+  provider     String?
+  providerId   String?
+  errorMessage String?
+  retryCount   Int       @default(0)
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  createdAt    DateTime  @default(now())
 
-  template   NotificationTemplate? @relation(fields: [templateId], references: [id])
-  recipient  User @relation(fields: [recipientId], references: [id])
+  template  NotificationTemplate? @relation(fields: [templateId], references: [id])
+  recipient User                  @relation(fields: [recipientId], references: [id])
 
   @@index([recipientId, status])
   @@index([templateId])
@@ -853,29 +941,29 @@ model NotificationLog {
 // ============================================
 
 model ImportJob {
-  id              String   @id @default(cuid())
-  jobNumber       String   @unique
-  matchId         String?
-  importType      String
-  fileName        String
-  fileSize        Int
-  storagePath     String
-  status          String   @default("UPLOADED")
-  totalRows       Int      @default(0)
-  validRows       Int      @default(0)
-  invalidRows     Int      @default(0)
-  duplicateRows   Int      @default(0)
-  importedRows    Int      @default(0)
-  errorSummary    String?
-  startedAt       DateTime?
-  completedAt     DateTime?
-  createdById     String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  id            String    @id @default(cuid())
+  jobNumber     String    @unique
+  matchId       String?
+  importType    String
+  fileName      String
+  fileSize      Int
+  storagePath   String
+  status        String    @default("UPLOADED")
+  totalRows     Int       @default(0)
+  validRows     Int       @default(0)
+  invalidRows   Int       @default(0)
+  duplicateRows Int       @default(0)
+  importedRows  Int       @default(0)
+  errorSummary  String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt()
 
-  match      Match? @relation(fields: [matchId], references: [id], onDelete: SetNull)
-  creator    User @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  rows       ImportRow[]
+  match   Match?      @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  creator User?       @relation("ImportJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  rows    ImportRow[]
 
   @@index([matchId, status])
   @@index([createdById])
@@ -883,15 +971,15 @@ model ImportJob {
 }
 
 model ImportRow {
-  id            String   @id @default(cuid())
-  importJobId   String
-  rowNumber     Int
-  rawData       String
-  mappedData    String?
-  status        String   @default("PENDING")
-  errors        String?
-  warnings      String?
-  createdAt     DateTime @default(now())
+  id          String   @id @default(cuid())
+  importJobId String
+  rowNumber   Int
+  rawData     String
+  mappedData  String?
+  status      String   @default("PENDING")
+  errors      String?
+  warnings    String?
+  createdAt   DateTime @default(now())
 
   importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
 
@@ -900,24 +988,24 @@ model ImportRow {
 }
 
 model ExportJob {
-  id              String   @id @default(cuid())
-  jobNumber       String   @unique
-  matchId         String?
-  exportType      String
-  format          String
-  filters         String?
-  status          String   @default("QUEUED")
-  fileName        String?
-  fileSize        Int?
-  storagePath     String?
-  recordCount     Int      @default(0)
-  errorMessage    String?
-  createdById     String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt()
+  id           String   @id @default(cuid())
+  jobNumber    String   @unique
+  matchId      String?
+  exportType   String
+  format       String
+  filters      String?
+  status       String   @default("QUEUED")
+  fileName     String?
+  fileSize     Int?
+  storagePath  String?
+  recordCount  Int      @default(0)
+  errorMessage String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt()
 
-  match     Match? @relation(fields: [matchId], references: [id], onDelete: SetNull)
-  creator   User @relation("ExportJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  match   Match? @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  creator User?  @relation("ExportJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([matchId, status])
   @@index([createdById])
@@ -929,26 +1017,26 @@ model ExportJob {
 // ============================================
 
 model AuditEvent {
-  id              String   @id @default(cuid())
-  eventId         String   @unique
-  matchId         String?
-  userId          String?
-  entityType      String
-  entityId        String
-  action          String
-  oldValues       String?
-  newValues       String?
-  changedFields   String[]
-  reason          String?
-  ipAddress       String?
-  userAgent       String?
-  sessionId       String?
-  correlationId   String?
-  severity        String   @default("INFO")
-  createdAt       DateTime @default(now())
+  id            String   @id @default(cuid())
+  eventId       String   @unique @default(cuid())
+  matchId       String?
+  userId        String?
+  entityType    String
+  entityId      String
+  action        String
+  oldValues     String?
+  newValues     String?
+  changedFields String[]
+  reason        String?
+  ipAddress     String?
+  userAgent     String?
+  sessionId     String?
+  correlationId String?
+  severity      String   @default("INFO")
+  createdAt     DateTime @default(now())
 
   match Match? @relation(fields: [matchId], references: [id])
-  user  User? @relation("AuditEventUser", fields: [userId], references: [id])
+  user  User?  @relation("AuditEventUser", fields: [userId], references: [id])
 
   @@index([matchId, createdAt])
   @@index([entityType, entityId])

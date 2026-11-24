@@ -2,9 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Bell, Search, User, LogOut, Menu, Moon, Sun, ChevronDown } from "lucide-react"
+import { Bell, User, Menu, Moon, Sun, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,38 +14,21 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useTheme } from "next-themes"
 import { useSession } from "@/hooks/use-session"
-import { cn } from "@/lib/utils"
-import { formatDateTime } from "@/lib/utils"
+import { LogoutButton } from "./logout-button"
 
-export function Header() {
+export function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const { theme, setTheme } = useTheme()
   const { user } = useSession()
-  const [searchQuery, setSearchQuery] = React.useState("")
-  const [showSearch, setShowSearch] = React.useState(false)
-  const now = new Date()
 
   return (
     <header className="sticky top-0 z-30 h-16 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-full items-center justify-between px-4 gap-4">
         {/* Mobile Menu Button */}
-        <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu">
+        <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu" onClick={onMenuClick}>
           <Menu className="h-5 w-5" />
         </Button>
 
-        {/* Search */}
-        <div className={cn("flex-1 max-w-md", showSearch ? "block" : "hidden lg:block")}>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search requests, requesters, matches..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 h-9 text-sm"
-              onFocus={() => setShowSearch(true)}
-              onBlur={() => setShowSearch(false)}
-            />
-          </div>
-        </div>
+        <div className="min-w-0 flex-1" />
 
         {/* Right Side Actions */}
         <div className="flex items-center gap-2">
@@ -64,27 +46,16 @@ export function Header() {
           {/* Notifications */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative">
+              <Button variant="ghost" size="icon" aria-label="Notifications">
                 <Bell className="h-5 w-5" />
-                <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-xs text-destructive-foreground">
-                  3
-                </span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80">
               <DropdownMenuLabel>Notifications</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-sm">
-                <p className="font-medium">New request assigned</p>
-                <p className="text-xs text-muted-foreground">REQ-2026-0042 assigned to you</p>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-sm">
-                <p className="font-medium">Approval required</p>
-                <p className="text-xs text-muted-foreground">REQ-2026-0038 needs your review</p>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-sm">
-                <p className="font-medium">Allocation completed</p>
-                <p className="text-xs text-muted-foreground">ALC-2026-0012 ready for distribution</p>
+              <DropdownMenuItem className="text-sm" disabled>
+                <p className="font-medium">No unread notifications</p>
+                <p className="text-xs text-muted-foreground">Delivery providers are not configured for this local demo.</p>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
@@ -114,23 +85,9 @@ export function Header() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/profile" className="flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  Profile
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/settings" className="flex items-center gap-2">
-                  <Moon className="h-4 w-4" />
-                  Preferences
-                </Link>
-              </DropdownMenuItem>
+              <DropdownMenuLabel>{user?.roles?.join(", ") || "No active role"}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => {}} className="flex items-center gap-2 text-destructive">
-                <LogOut className="h-4 w-4" />
-                Sign out
-              </DropdownMenuItem>
+              <LogoutButton />
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

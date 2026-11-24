@@ -1,380 +1,236 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
+import type { Prisma } from "@prisma/client"
+import { AlertCircle, Download, Eye, FileText, Plus, Search, Upload } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
 import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  FileText,
-  Plus,
-  Search,
-  Filter,
-  Edit,
-  Eye,
-  Download,
-  Upload,
-  MoreHorizontal,
-} from "lucide-react"
-import { formatDate, formatStatus, getStatusColor, getPriorityColor } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import Link from "next/link"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Label } from "@/components/ui/label"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { formatDate, formatStatus, getPriorityColor, getStatusColor } from "@/lib/utils"
 
-const requests = [
-  {
-    id: "REQ-2026-0042",
-    requester: "Dr. S. Ramesh",
-    org: "Andhra Cricket Association",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "VIP", requested: 20, approved: 15 },
-      { category: "PREMIUM", requested: 10, approved: 10 },
-    ],
-    totalRequested: 30,
-    totalApproved: 25,
-    status: "PARTIALLY_APPROVED",
-    priority: "PROTOCOL",
-    source: "IN_PERSON",
-    date: "2026-11-20",
-    assignedTo: "Admin User",
-  },
-  {
-    id: "REQ-2026-0041",
-    requester: "Mr. K. Venkatesh",
-    org: "Andhra Cricket Association",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "PREMIUM", requested: 50, approved: 50 },
-    ],
-    totalRequested: 50,
-    totalApproved: 50,
-    status: "APPROVED",
-    priority: "HIGH",
-    source: "EMAIL",
-    date: "2026-11-20",
-    assignedTo: "Admin User",
-  },
-  {
-    id: "REQ-2026-0040",
-    requester: "Ms. L. Padmaja",
-    org: "BCCI",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "MEDIA", requested: 30, approved: 25 },
-    ],
-    totalRequested: 30,
-    totalApproved: 25,
-    status: "PARTIALLY_APPROVED",
-    priority: "NORMAL",
-    source: "LETTER",
-    date: "2026-11-19",
-    assignedTo: "John Doe",
-  },
-  {
-    id: "REQ-2026-0039",
-    requester: "Mr. V. Ravi Kumar",
-    org: "Visakhapatnam DCA",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "GENERAL_EAST", requested: 100, approved: 80 },
-    ],
-    totalRequested: 100,
-    totalApproved: 80,
-    status: "APPROVED",
-    priority: "NORMAL",
-    source: "WHATSAPP",
-    date: "2026-11-19",
-    assignedTo: "Jane Smith",
-  },
-  {
-    id: "REQ-2026-0038",
-    requester: "Mr. M. Rajesh",
-    org: "Reliance Industries",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "VIP", requested: 25, approved: 0 },
-    ],
-    totalRequested: 25,
-    totalApproved: 0,
-    status: "UNDER_REVIEW",
-    priority: "HIGH",
-    source: "ONLINE_FORM",
-    date: "2026-11-18",
-    assignedTo: "Admin User",
-  },
-  {
-    id: "REQ-2026-0037",
-    requester: "Ms. A. Priya",
-    org: "Star Sports",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "MEDIA", requested: 15, approved: 15 },
-    ],
-    totalRequested: 15,
-    totalApproved: 15,
-    status: "APPROVED",
-    priority: "NORMAL",
-    source: "EMAIL",
-    date: "2026-11-18",
-    assignedTo: "John Doe",
-  },
-  {
-    id: "REQ-2026-0036",
-    requester: "Mr. G. Krishna",
-    org: "ACA Member",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "GENERAL_WEST", requested: 50, approved: 30 },
-    ],
-    totalRequested: 50,
-    totalApproved: 30,
-    status: "PARTIALLY_APPROVED",
-    priority: "LOW",
-    source: "PHONE",
-    date: "2026-11-17",
-    assignedTo: "Jane Smith",
-  },
-  {
-    id: "REQ-2026-0035",
-    requester: "Ms. S. Lakshmi",
-    org: "Stadium Operations",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "STADIUM_OPS", requested: 40, approved: 40 },
-    ],
-    totalRequested: 40,
-    totalApproved: 40,
-    status: "APPROVED",
-    priority: "NORMAL",
-    source: "INTERNAL",
-    date: "2026-11-17",
-    assignedTo: "Admin User",
-  },
-]
+type RequestRecord = Prisma.RequestGetPayload<{
+  include: {
+    match: { select: { id: true; title: true; matchDate: true } }
+    requester: {
+      select: {
+        id: true
+        fullName: true
+        mobileNumber: true
+        email: true
+        organisation: { select: { name: true } }
+      }
+    }
+    createdBy: { select: { id: true; fullName: true } }
+    assignedTo: { select: { id: true; fullName: true } }
+    items: { include: { ticketCategory: { select: { id: true; name: true; displayName: true } } } }
+    _count: { select: { attachments: true; comments: true; approvalSteps: true } }
+  }
+}>
+
+interface RequestsResponse {
+  requests: RequestRecord[]
+  total: number
+}
+
+const PAGE_SIZE = 25
+const selectClassName = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 
 export default function RequestsPage() {
-  const { user, loading } = useSession()
+  const { user, loading: sessionLoading } = useSession()
+  const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
   const [statusFilter, setStatusFilter] = React.useState("all")
   const [priorityFilter, setPriorityFilter] = React.useState("all")
+  const [offset, setOffset] = React.useState(0)
+  const [response, setResponse] = React.useState<RequestsResponse>({ requests: [], total: 0 })
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState("")
+  const [reloadKey, setReloadKey] = React.useState(0)
 
-  if (loading) {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      </MainLayout>
-    )
+  const canRead = Boolean(user?.permissions.includes("requests:read"))
+  const canWrite = Boolean(user?.permissions.includes("requests:write"))
+  const canImport = Boolean(user?.permissions.includes("requests:bulk_import"))
+  const canExport = Boolean(user?.permissions.includes("requests:export"))
+
+  React.useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearch(searchInput.trim())
+      setOffset(0)
+    }, 350)
+    return () => window.clearTimeout(timeout)
+  }, [searchInput])
+
+  React.useEffect(() => {
+    if (sessionLoading || !canRead) {
+      if (!sessionLoading) setLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    const loadRequests = async () => {
+      setLoading(true)
+      setError("")
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(offset),
+        status: statusFilter,
+      })
+      if (search) params.set("search", search)
+      try {
+        const result = await fetch(`/api/requests?${params.toString()}`, { signal: controller.signal })
+        const body: unknown = await result.json()
+        if (!result.ok) throw new Error(getApiError(body, "Unable to load requests"))
+        const data = body as RequestsResponse
+        setResponse({ requests: Array.isArray(data.requests) ? data.requests : [], total: Number(data.total) || 0 })
+      } catch (requestError: unknown) {
+        if (requestError instanceof DOMException && requestError.name === "AbortError") return
+        setError(getErrorMessage(requestError))
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }
+    void loadRequests()
+    return () => controller.abort()
+  }, [canRead, offset, reloadKey, search, sessionLoading, statusFilter])
+
+  const filteredRequests = React.useMemo(
+    () => response.requests.filter((request) => priorityFilter === "all" || request.priority === priorityFilter),
+    [priorityFilter, response.requests],
+  )
+
+  const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSearch(searchInput.trim())
+    setOffset(0)
   }
-
-  const filteredRequests = requests.filter((req) => {
-    const matchesSearch = req.id.toLowerCase().includes(search.toLowerCase()) ||
-      req.requester.toLowerCase().includes(search.toLowerCase()) ||
-      req.org.toLowerCase().includes(search.toLowerCase()) ||
-      req.match.toLowerCase().includes(search.toLowerCase())
-    const matchesStatus = statusFilter === "all" || req.status === statusFilter
-    const matchesPriority = priorityFilter === "all" || req.priority === priorityFilter
-    return matchesSearch && matchesStatus && matchesPriority
-  })
 
   return (
     <MainLayout>
       <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Requests</h1>
-            <p className="text-muted-foreground">Manage ticket requests from all sources</p>
+            <p className="text-muted-foreground">Track ticket requests from receipt through fulfilment</p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" asChild>
-              <Link href="/requests/import">
-                <Upload className="h-4 w-4 mr-2" />
-                Import
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/requests/export">
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link href="/requests/new">
-                <Plus className="h-4 w-4 mr-2" />
-                New Request
-              </Link>
-            </Button>
-          </div>
+          {(canImport || canExport || canWrite) && (
+            <div className="flex flex-wrap gap-2">
+              {canImport && (
+                <Button variant="outline" asChild>
+                  <Link href="/admin/import-export"><Upload className="mr-2 h-4 w-4" />Import</Link>
+                </Button>
+              )}
+              {canExport && (
+                <Button variant="outline" asChild>
+                  <Link href="/admin/import-export"><Download className="mr-2 h-4 w-4" />Export</Link>
+                </Button>
+              )}
+              {canWrite && (
+                <Button asChild><Link href="/requests/new"><Plus className="mr-2 h-4 w-4" />New request</Link></Button>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Filters */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search by ID, requester, organization, match..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="flex h-10 w-[180px] items-center rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="all">All Status</option>
-                  <option value="DRAFT">Draft</option>
-                  <option value="SUBMITTED">Submitted</option>
-                  <option value="UNDER_REVIEW">Under Review</option>
-                  <option value="APPROVED">Approved</option>
-                  <option value="PARTIALLY_APPROVED">Partially Approved</option>
-                  <option value="REJECTED">Rejected</option>
-                  <option value="WAITLISTED">Waitlisted</option>
-                  <option value="CANCELLED">Cancelled</option>
-                  <option value="CLOSED">Closed</option>
-                </select>
-                <select
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                  className="flex h-10 w-[160px] items-center rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="all">All Priority</option>
-                  <option value="PROTOCOL">Protocol</option>
-                  <option value="URGENT">Urgent</option>
-                  <option value="HIGH">High</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="LOW">Low</option>
-                </select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {!sessionLoading && !canRead ? (
+          <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertTitle>Access unavailable</AlertTitle><AlertDescription>Your account does not have permission to view requests.</AlertDescription></Alert>
+        ) : (
+          <>
+            <Card>
+              <CardContent className="pt-6">
+                <form className="grid gap-4 lg:grid-cols-[minmax(240px,1fr)_190px_170px_auto]" onSubmit={submitSearch}>
+                  <div className="space-y-2">
+                    <Label htmlFor="request-search">Search requests</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                      <Input id="request-search" className="pl-10" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Request number, requester, phone or email" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="request-status">Status</Label>
+                    <select id="request-status" className={selectClassName} value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setOffset(0) }}>
+                      <option value="all">All statuses</option>
+                      {['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PARTIALLY_APPROVED', 'REJECTED', 'CLOSED'].map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="request-priority">Priority on this page</Label>
+                    <select id="request-priority" className={selectClassName} value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>
+                      <option value="all">All priorities</option>
+                      {['LOW', 'NORMAL', 'HIGH', 'PROTOCOL'].map((priority) => <option key={priority} value={priority}>{formatStatus(priority)}</option>)}
+                    </select>
+                  </div>
+                  <Button type="submit" variant="secondary" className="self-end">Search</Button>
+                </form>
+              </CardContent>
+            </Card>
 
-        {/* Requests Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>All Requests ({requests.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Request ID</TableHead>
-                    <TableHead>Requester</TableHead>
-                    <TableHead>Organization</TableHead>
-                    <TableHead>Match</TableHead>
-                    <TableHead>Categories</TableHead>
-                    <TableHead className="text-right">Requested</TableHead>
-                    <TableHead className="text-right">Approved</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Priority</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Assigned To</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredRequests.map((req) => (
-                    <TableRow key={req.id}>
-                      <TableCell className="font-mono font-medium">
-                        <Link href={`/requests/${req.id}`} className="text-primary hover:underline">
-                          {req.id}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{req.requester}</TableCell>
-                      <TableCell className="max-w-[150px] truncate">{req.org}</TableCell>
-                      <TableCell className="max-w-[200px] truncate">{req.match}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {req.items.map((item, idx) => (
-                            <Badge key={idx} variant="secondary" className="text-xs">
-                              {item.category} ({item.approved > 0 ? `${item.approved}/${item.requested}` : item.requested})
-                            </Badge>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">{req.totalRequested}</TableCell>
-                      <TableCell className="text-right font-medium text-green-600">{req.totalApproved}</TableCell>
-                      <TableCell>
-                        <Badge className={getStatusColor(req.status)}>
-                          {formatStatus(req.status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={getPriorityColor(req.priority)}>
-                          {formatStatus(req.priority)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">{req.source}</Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{formatDate(req.date)}</TableCell>
-                      <TableCell className="text-sm">{req.assignedTo}</TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <DropdownMenuItem asChild>
-                              <Link href={`/requests/${req.id}`}>
-                                <Eye className="h-4 w-4 mr-2" />
-                                View Details
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link href={`/requests/${req.id}/edit`}>
-                                <Edit className="h-4 w-4 mr-2" />
-                                Edit
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem>Duplicate</DropdownMenuItem>
-                            <DropdownMenuItem>Assign</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">Cancel Request</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" /><AlertTitle>Could not load requests</AlertTitle>
+                <AlertDescription className="flex flex-wrap items-center gap-3"><span>{error}</span><Button type="button" size="sm" variant="outline" onClick={() => setReloadKey((key) => key + 1)}>Try again</Button></AlertDescription>
+              </Alert>
+            )}
 
-        {filteredRequests.length === 0 && (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
-              <h3 className="mt-4 text-lg font-medium">No requests found</h3>
-              <p className="mt-2 text-muted-foreground">Try adjusting your search or filters</p>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader><CardTitle>Request directory ({response.total})</CardTitle></CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="flex h-48 items-center justify-center" role="status"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /><span className="sr-only">Loading requests</span></div>
+                ) : !error && filteredRequests.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <FileText className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                    <h2 className="mt-4 text-lg font-medium">No requests found</h2>
+                    <p className="mt-2 text-muted-foreground">{response.total > 0 ? "No requests on this page match the selected priority." : "Try another search or status filter."}</p>
+                    {canWrite && response.total === 0 && <Button className="mt-4" asChild><Link href="/requests/new">Create a request</Link></Button>}
+                  </div>
+                ) : !error ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Requester</TableHead><TableHead>Match</TableHead><TableHead>Categories</TableHead><TableHead className="text-right">Requested / approved</TableHead><TableHead>Status</TableHead><TableHead>Priority</TableHead><TableHead>Created</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {filteredRequests.map((request) => (
+                          <TableRow key={request.id}>
+                            <TableCell><Link className="font-mono font-medium text-primary hover:underline" href={`/requests/${request.id}`}>{request.requestNumber}</Link><p className="mt-1 text-xs text-muted-foreground">{formatStatus(request.source)}</p></TableCell>
+                            <TableCell><p className="font-medium">{request.requester.fullName}</p><p className="max-w-[180px] truncate text-sm text-muted-foreground">{request.requester.organisation?.name || "No organisation"}</p></TableCell>
+                            <TableCell><p className="max-w-[220px] truncate" title={request.match.title}>{request.match.title}</p><p className="text-sm text-muted-foreground">{formatDate(request.match.matchDate)}</p></TableCell>
+                            <TableCell><div className="flex max-w-[260px] flex-wrap gap-1">{request.items.map((item) => <Badge key={item.id} variant="secondary" className="text-xs">{item.ticketCategory.displayName} ({item.requestedQuantity})</Badge>)}</div></TableCell>
+                            <TableCell className="whitespace-nowrap text-right font-medium">{request.totalRequested} / <span className="text-green-700">{request.totalApproved}</span></TableCell>
+                            <TableCell><Badge className={getStatusColor(request.status)}>{formatStatus(request.status)}</Badge></TableCell>
+                            <TableCell><Badge className={getPriorityColor(request.priority)}>{formatStatus(request.priority)}</Badge></TableCell>
+                            <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatDate(request.createdAt)}<p>{request.assignedTo?.fullName || "Unassigned"}</p></TableCell>
+                            <TableCell><Button variant="ghost" size="sm" asChild><Link href={`/requests/${request.id}`} aria-label={`View ${request.requestNumber}`}><Eye className="mr-2 h-4 w-4" />View</Link></Button></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+              <p>{response.total === 0 ? "0 requests" : `Showing ${offset + 1}–${Math.min(offset + response.requests.length, response.total)} of ${response.total}`}</p>
+              <div className="flex gap-2"><Button variant="outline" size="sm" disabled={offset === 0 || loading} onClick={() => setOffset((value) => Math.max(0, value - PAGE_SIZE))}>Previous</Button><Button variant="outline" size="sm" disabled={offset + response.requests.length >= response.total || loading} onClick={() => setOffset((value) => value + PAGE_SIZE)}>Next</Button></div>
+            </div>
+          </>
         )}
       </div>
     </MainLayout>
   )
+}
+
+function getApiError(body: unknown, fallback: string): string {
+  if (typeof body === "object" && body !== null && "error" in body && typeof body.error === "string") return body.error
+  return fallback
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unable to load requests"
 }

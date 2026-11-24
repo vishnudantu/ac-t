@@ -1,305 +1,161 @@
 "use client"
 
-import * as React from "react"
-import { useSession } from "@/hooks/use-session"
+import { useState } from "react"
+import { Package } from "lucide-react"
 import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Package,
-  Search,
-  Filter,
-  Eye,
-  Edit,
-  Plus,
-  Minus,
-  ArrowRight,
-  Lock,
-  Unlock,
-} from "lucide-react"
-import { formatDate, formatStatus, getStatusColor } from "@/lib/utils"
-import { Input } from "@/components/ui/input"
-import Link from "next/link"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { getAllocations } from "@/components/operations/api"
+import { DataState, EmptyState, TableSkeleton } from "@/components/operations/data-state"
+import { FilterSelect, Pagination, SearchInput } from "@/components/operations/list-controls"
+import { PageHeader } from "@/components/operations/page-header"
+import { optionalNumber, optionalText } from "@/components/operations/types"
+import { useOperationData } from "@/components/operations/use-operation-data"
+import { formatDate, formatNumber, formatStatus, getStatusColor } from "@/lib/utils"
 
-const pendingAllocations = [
-  {
-    id: "ALC-2026-0012",
-    requestId: "REQ-2026-0042",
-    requester: "Dr. S. Ramesh",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "VIP", approved: 15, allocated: 10, available: 45, stand: "VIP Pavilion A" },
-      { category: "PREMIUM", approved: 10, allocated: 10, available: 1800, stand: "Premium Stand C" },
-    ],
-    totalApproved: 25,
-    totalAllocated: 20,
-    status: "PENDING_REVIEW",
-    officer: "Allocation Officer 1",
-    createdAt: "2026-11-20T11:00:00",
-  },
-  {
-    id: "ALC-2026-0011",
-    requestId: "REQ-2026-0041",
-    requester: "Mr. K. Venkatesh",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "PREMIUM", approved: 50, allocated: 50, available: 1800, stand: "Premium Stand C" },
-    ],
-    totalApproved: 50,
-    totalAllocated: 50,
-    status: "CONFIRMED",
-    officer: "Allocation Officer 2",
-    createdAt: "2026-11-20T10:30:00",
-  },
-  {
-    id: "ALC-2026-0010",
-    requestId: "REQ-2026-0039",
-    requester: "Mr. V. Ravi Kumar",
-    match: "India vs Australia - 2nd ODI",
-    items: [
-      { category: "GENERAL_EAST", approved: 80, allocated: 80, available: 5000, stand: "East Stand E1" },
-    ],
-    totalApproved: 80,
-    totalAllocated: 80,
-    status: "LOCKED",
-    officer: "Allocation Officer 1",
-    createdAt: "2026-11-19T15:00:00",
-  },
-]
+const PAGE_SIZE = 20
 
-const completedAllocations = [
-  {
-    id: "ALC-2026-0009",
-    requestId: "REQ-2026-0037",
-    requester: "Ms. A. Priya",
-    match: "India vs Australia - 2nd ODI",
-    items: [{ category: "MEDIA", approved: 15, allocated: 15, stand: "Media Centre M1" }],
-    totalApproved: 15,
-    totalAllocated: 15,
-    status: "LOCKED",
-    officer: "Allocation Officer 2",
-    createdAt: "2026-11-18T17:00:00",
-  },
-  {
-    id: "ALC-2026-0008",
-    requestId: "REQ-2026-0035",
-    requester: "Ms. S. Lakshmi",
-    match: "India vs Australia - 2nd ODI",
-    items: [{ category: "STADIUM_OPS", approved: 40, allocated: 40, stand: "Operations Block O1" }],
-    totalApproved: 40,
-    totalAllocated: 40,
-    status: "LOCKED",
-    officer: "Allocation Officer 1",
-    createdAt: "2026-11-17T16:00:00",
-  },
+const statusOptions = [
+  { value: "all", label: "All statuses" },
+  { value: "DRAFT", label: "Draft" },
+  { value: "CONFIRMED", label: "Confirmed" },
+  { value: "LOCKED", label: "Locked" },
+  { value: "RELEASED", label: "Released" },
 ]
 
 export default function AllocationsPage() {
-  const { user, loading } = useSession()
-  const [activeTab, setActiveTab] = React.useState("pending")
+  const [search, setSearch] = useState("")
+  const [status, setStatus] = useState("all")
+  const [page, setPage] = useState(1)
+  const { data, loading, error, retry } = useOperationData(
+    (signal) => getAllocations(signal, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, status }),
+    [page, status],
+  )
 
-  if (loading) {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      </MainLayout>
-    )
+  const allocations = data?.allocations ?? []
+  const query = search.trim().toLowerCase()
+  const filteredAllocations = allocations.filter((allocation) =>
+    !query || [allocation.allocationNumber, allocation.request.requestNumber,
+      allocation.request.requester.fullName, allocation.match.title, allocation.officer.fullName]
+      .some((value) => value.toLowerCase().includes(query)),
+  )
+
+  function changeStatus(value: string) {
+    setStatus(value)
+    setPage(1)
+  }
+
+  function clearFilters() {
+    setSearch("")
+    setStatus("all")
+    setPage(1)
   }
 
   return (
     <MainLayout>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Allocations</h1>
-            <p className="text-muted-foreground">Assign approved tickets to inventory</p>
-          </div>
-          <div className="flex gap-2">
-            <Badge variant="secondary" className="text-lg px-3 py-1">
-              {pendingAllocations.length} Pending
-            </Badge>
-            <Button asChild>
-              <Link href="/allocations/new">
-                <Plus className="h-4 w-4 mr-2" />
-                New Allocation
-              </Link>
-            </Button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="pending">Pending ({pendingAllocations.length})</TabsTrigger>
-            <TabsTrigger value="completed">Completed ({completedAllocations.length})</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="pending" className="space-y-4">
-            {pendingAllocations.map((alloc) => (
-              <Card key={alloc.id} className="border-l-4 border-l-primary">
-                <CardContent className="p-6">
-                  <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto_auto]">
-                    {/* Request Info */}
-                    <div className="lg:col-span-1">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <Link href={`/allocations/${alloc.id}`} className="font-mono font-medium text-primary hover:underline">
-                            {alloc.id}
-                          </Link>
-                          <p className="text-sm text-muted-foreground">{alloc.requestId} · {alloc.requester}</p>
-                          <p className="text-sm text-muted-foreground">{alloc.match}</p>
-                        </div>
-                        <Badge className={getStatusColor(alloc.status)}>{formatStatus(alloc.status)}</Badge>
-                      </div>
-
-                      {/* Allocation Items */}
-                      <div className="mt-4 space-y-2">
-                        {alloc.items.map((item, idx) => (
-                          <div key={idx} className="p-3 bg-muted/50 rounded-lg">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <Badge variant="secondary">{item.category}</Badge>
-                                <span className="text-sm font-medium">
-                                  Stand: {item.stand}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-4 text-sm">
-                                <span>Approved: <span className="font-medium">{item.approved}</span></span>
-                                <span className="text-green-600">Allocated: <span className="font-medium">{item.allocated}</span></span>
-                                <span className="text-muted-foreground">Available: {item.available}</span>
-                              </div>
+      <div className="space-y-5">
+        <PageHeader
+          title="Allocations"
+          description="Approved ticket requests and their assigned inventory pools."
+          onRefresh={retry}
+          refreshing={loading}
+        />
+        <Card className="shadow-none">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              label="Filter allocations on this page"
+              placeholder="Filter this page by allocation, request, or requester…"
+            />
+            <FilterSelect value={status} onChange={changeStatus} label="Status" options={statusOptions} />
+          </CardContent>
+        </Card>
+        <Card className="shadow-none">
+          <CardHeader className="p-4 pb-3">
+            <CardTitle className="text-lg">Allocation records</CardTitle>
+            <CardDescription>{data ? `${formatNumber(data.total)} allocations` : "Live allocation records"}</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <DataState loading={loading} error={error} onRetry={retry} skeleton={<TableSkeleton rows={5} />}>
+              {filteredAllocations.length === 0 ? (
+                <EmptyState
+                  icon={<Package className="h-10 w-10" />}
+                  title={query || status !== "all" ? "No matching allocations" : "No allocations recorded"}
+                  description={query
+                    ? "No allocations on this page match your search. Try another page or clear the search."
+                    : status !== "all"
+                      ? "There are no allocations with this status."
+                      : "Allocation records will appear here after tickets are assigned."}
+                  onClear={query || status !== "all" ? clearFilters : undefined}
+                />
+              ) : (
+                <div className="divide-y">
+                  {filteredAllocations.map((allocation) => {
+                    const approved = allocation.items.reduce((sum, item) => sum + (optionalNumber(item.requestItem.approvedQuantity) ?? 0), 0)
+                    const allocated = allocation.items.reduce((sum, item) => sum + (optionalNumber(item.quantity) ?? 0), 0)
+                    const total = optionalNumber(allocation.totalQuantity) ?? allocated
+                    return (
+                      <article key={allocation.id} className="p-4" aria-labelledby={`allocation-${allocation.id}`}>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 id={`allocation-${allocation.id}`} className="font-mono text-sm font-semibold">{optionalText(allocation.allocationNumber) ?? "Allocation"}</h3>
+                              <Badge className={getStatusColor(optionalText(allocation.status) ?? "PENDING")}>{formatStatus(optionalText(allocation.status) ?? "PENDING")}</Badge>
                             </div>
-                            {item.allocated < item.approved && (
-                              <div className="mt-2 flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={Math.min(item.approved - item.allocated, item.available)}
-                                  defaultValue={Math.min(item.approved - item.allocated, item.available)}
-                                  className="w-24 h-8 rounded-md border border-input bg-background px-2 py-1 text-sm"
-                                />
-                                <Button size="sm" variant="outline">
-                                  <Plus className="h-3.5 w-3.5 mr-1" />
-                                  Allocate
-                                </Button>
-                                <Button size="sm" variant="ghost">
-                                  <Minus className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            )}
+                            <p className="mt-1.5 text-sm">{allocation.request.requestNumber} · {allocation.request.requester.fullName}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{allocation.match.title} · Officer: {allocation.officer.fullName}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">Created {formatDate(allocation.createdAt)}</p>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Summary */}
-                    <div className="text-center">
-                      <p className="text-sm text-muted-foreground">Total Approved</p>
-                      <p className="text-2xl font-bold">{alloc.totalApproved}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm text-muted-foreground">Total Allocated</p>
-                      <p className="text-2xl font-bold text-green-600">{alloc.totalAllocated}</p>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex flex-col gap-2">
-                      <Button onClick={() => {}} className="w-full">
-                        <ArrowRight className="h-4 w-4 mr-2" />
-                        Allocate All
-                      </Button>
-                      <Button variant="outline" onClick={() => {}} className="w-full">
-                        <Eye className="h-4 w-4 mr-2" />
-                        Review
-                      </Button>
-                      {alloc.status !== "LOCKED" && (
-                        <Button variant="outline" onClick={() => {}} className="w-full">
-                          <Lock className="h-4 w-4 mr-2" />
-                          Lock
-                        </Button>
-                      )}
-                      {alloc.status === "LOCKED" && (
-                        <Button variant="ghost" onClick={() => {}} className="w-full text-orange-600">
-                          <Unlock className="h-4 w-4 mr-2" />
-                          Unlock
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </TabsContent>
-
-          <TabsContent value="completed">
-            <Card>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Allocation ID</TableHead>
-                        <TableHead>Request ID</TableHead>
-                        <TableHead>Requester</TableHead>
-                        <TableHead>Items</TableHead>
-                        <TableHead className="text-right">Approved</TableHead>
-                        <TableHead className="text-right">Allocated</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Officer</TableHead>
-                        <TableHead>Date</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {completedAllocations.map((alloc) => (
-                        <TableRow key={alloc.id}>
-                          <TableCell className="font-mono font-medium">
-                            <Link href={`/allocations/${alloc.id}`} className="text-primary hover:underline">
-                              {alloc.id}
-                            </Link>
-                          </TableCell>
-                          <TableCell>{alloc.requestId}</TableCell>
-                          <TableCell>{alloc.requester}</TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                              {alloc.items.map((item, idx) => (
-                                <Badge key={idx} variant="secondary">
-                                  {item.category} ({item.allocated})
-                                </Badge>
-                              ))}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">{alloc.totalApproved}</TableCell>
-                          <TableCell className="text-right text-green-600 font-medium">{alloc.totalAllocated}</TableCell>
-                          <TableCell>
-                            <Badge className={getStatusColor(alloc.status)}>
-                              {formatStatus(alloc.status)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{alloc.officer}</TableCell>
-                          <TableCell className="text-muted-foreground">{formatDate(alloc.createdAt)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                          <dl className="flex shrink-0 gap-6 sm:text-right">
+                            <div><dt className="text-xs text-muted-foreground">Approved</dt><dd className="mt-1 text-lg font-bold tabular-nums">{formatNumber(approved)}</dd></div>
+                            <div><dt className="text-xs text-muted-foreground">Allocated</dt><dd className="mt-1 text-lg font-bold tabular-nums text-green-700 dark:text-green-400">{formatNumber(total)}</dd></div>
+                          </dl>
+                        </div>
+                        {allocation.items.length === 0 ? (
+                          <p className="mt-3 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">No inventory items are linked to this allocation.</p>
+                        ) : (
+                          <div className="mt-3 overflow-hidden rounded-md border">
+                            <Table>
+                              <TableCaption className="sr-only">Items allocated to {allocation.request.requestNumber}</TableCaption>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead scope="col">Category</TableHead>
+                                  <TableHead scope="col">Inventory location</TableHead>
+                                  <TableHead scope="col">Item status</TableHead>
+                                  <TableHead scope="col" className="text-right">Approved</TableHead>
+                                  <TableHead scope="col" className="text-right">Allocated</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {allocation.items.map((item) => (
+                                  <TableRow key={item.id}>
+                                    <TableCell><Badge variant="secondary">{item.ticketCategory.displayName}</Badge></TableCell>
+                                    <TableCell>
+                                      <span className="text-sm">{item.inventoryPool.standName}</span>
+                                      <span className="ml-1 text-xs text-muted-foreground">{item.inventoryPool.blockName ? `Block ${item.inventoryPool.blockName}` : "Block not specified"}</span>
+                                    </TableCell>
+                                    <TableCell><Badge variant="outline">{formatStatus(item.status)}</Badge></TableCell>
+                                    <TableCell className="text-right tabular-nums">{formatNumber(optionalNumber(item.requestItem.approvedQuantity) ?? 0)}</TableCell>
+                                    <TableCell className="text-right font-medium tabular-nums">{formatNumber(optionalNumber(item.quantity) ?? 0)}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </article>
+                    )
+                  })}
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              )}
+            </DataState>
+          </CardContent>
+          {data && !error && !loading && (
+            <Pagination page={page} pageSize={PAGE_SIZE} total={data.total} itemCount={filteredAllocations.length} onPageChange={setPage} filtered={Boolean(query)} />
+          )}
+        </Card>
       </div>
     </MainLayout>
   )

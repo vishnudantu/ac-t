@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { safeCallbackPath } from "@/lib/auth-core"
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -21,13 +22,17 @@ const loginSchema = z.object({
 type LoginForm = z.infer<typeof loginSchema>
 
 export default function LoginPage() {
+  return <React.Suspense fallback={<div className="min-h-screen bg-muted/50" />}><LoginForm /></React.Suspense>
+}
+
+function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard"
+  const callbackUrl = safeCallbackPath(searchParams.get("callbackUrl"))
 
   const {
     register,
@@ -94,7 +99,7 @@ export default function LoginPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="admin@aca.gov.in"
+                placeholder="office@andhracricket.com"
                 {...register("email")}
                 disabled={isLoading}
                 aria-invalid={!!errors.email}
@@ -137,7 +142,7 @@ export default function LoginPage() {
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">
           <p className="text-center text-sm text-muted-foreground">
-            Demo credentials: admin@aca.gov.in / Admin@123
+            Use the account provided by your administrator.
           </p>
           <div className="text-center text-xs text-muted-foreground">
             © 2026 Andhra Cricket Association. All rights reserved.

@@ -2,15 +2,9 @@
 
 import { useState, useEffect } from "react"
 
-interface SessionPayload {
-  userId: string
-  email: string
-  fullName: string
-  roles: string[]
-  permissions: string[]
-  matchId?: string
-  departmentId?: string
-}
+import type { SessionPayload } from "@/lib/auth-core"
+
+export { SessionPayload }
 
 export function useSession() {
   const [user, setUser] = useState<SessionPayload | null>(null)

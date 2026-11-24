@@ -1,296 +1,214 @@
 "use client"
 
-import * as React from "react"
-import { useSession } from "@/hooks/use-session"
-import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Calendar,
-  FileText,
-  ClipboardList,
-  Package,
-  Truck,
-  Ticket,
-  Shield,
-  Users,
-  TrendingUp,
-  AlertTriangle,
-  Clock,
-  CheckCircle,
-  XCircle,
-} from "lucide-react"
-import { formatDate, formatDateTime, getStatusColor, getPriorityColor, formatStatus } from "@/lib/utils"
+import { CalendarDays, CheckCircle2, FileText, MapPin, Package, Ticket } from "lucide-react"
 import Link from "next/link"
+import { MainLayout } from "@/components/layout/main-layout"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { getAllocations, getInventory, getMatches, getRequests } from "@/components/operations/api"
+import { EmptyState, ErrorState, MetricSkeleton, TableSkeleton } from "@/components/operations/data-state"
+import { MetricCard } from "@/components/operations/metric-card"
+import { PageHeader } from "@/components/operations/page-header"
+import { useOperationData } from "@/components/operations/use-operation-data"
+import { formatDate, formatDateTime, formatNumber, formatStatus, getPriorityColor, getStatusColor } from "@/lib/utils"
 
-const statCards = [
-  { title: "Total Requests", value: "1,247", icon: FileText, color: "text-blue-600", bg: "bg-blue-100", change: "+12%", trend: "up" },
-  { title: "Pending Approvals", value: "89", icon: ClipboardList, color: "text-yellow-600", bg: "bg-yellow-100", change: "+5", trend: "up" },
-  { title: "Tickets Allocated", value: "28,450", icon: Package, color: "text-green-600", bg: "bg-green-100", change: "+1,200", trend: "up" },
-  { title: "Tickets Distributed", value: "24,180", icon: Truck, color: "text-purple-600", bg: "bg-purple-100", change: "+890", trend: "up" },
-  { title: "Available Inventory", value: "9,550", icon: Ticket, color: "text-indigo-600", bg: "bg-indigo-100", change: "-1,200", trend: "down" },
-  { title: "Quota Utilization", value: "73%", icon: Shield, color: "text-orange-600", bg: "bg-orange-100", change: "+2%", trend: "up" },
-]
+const OVERVIEW_LIMIT = 100
 
-const recentRequests = [
-  { id: "REQ-2026-0042", requester: "Dr. S. Ramesh", match: "India vs Australia - 2nd ODI", category: "VIP", requested: 20, approved: 15, status: "PARTIALLY_APPROVED", priority: "PROTOCOL", date: "2026-11-20" },
-  { id: "REQ-2026-0041", requester: "Mr. K. Venkatesh", match: "India vs Australia - 2nd ODI", category: "PREMIUM", requested: 50, approved: 50, status: "APPROVED", priority: "HIGH", date: "2026-11-20" },
-  { id: "REQ-2026-0040", requester: "Ms. L. Padmaja", match: "India vs Australia - 2nd ODI", category: "MEDIA", requested: 30, approved: 25, status: "PARTIALLY_APPROVED", priority: "NORMAL", date: "2026-11-19" },
-  { id: "REQ-2026-0039", requester: "Mr. V. Ravi Kumar", match: "India vs Australia - 2nd ODI", category: "GENERAL_EAST", requested: 100, approved: 80, status: "APPROVED", priority: "NORMAL", date: "2026-11-19" },
-  { id: "REQ-2026-0038", requester: "Mr. M. Rajesh", match: "India vs Australia - 2nd ODI", category: "VIP", requested: 25, approved: 0, status: "UNDER_REVIEW", priority: "HIGH", date: "2026-11-18" },
-  { id: "REQ-2026-0037", requester: "Ms. A. Priya", match: "India vs Australia - 2nd ODI", category: "MEDIA", requested: 15, approved: 15, status: "APPROVED", priority: "NORMAL", date: "2026-11-18" },
-  { id: "REQ-2026-0036", requester: "Mr. G. Krishna", match: "India vs Australia - 2nd ODI", category: "GENERAL_WEST", requested: 50, approved: 30, status: "PARTIALLY_APPROVED", priority: "LOW", date: "2026-11-17" },
-  { id: "REQ-2026-0035", requester: "Ms. S. Lakshmi", match: "India vs Australia - 2nd ODI", category: "STADIUM_OPS", requested: 40, approved: 40, status: "APPROVED", priority: "NORMAL", date: "2026-11-17" },
-]
+type SectionResult<T> = { data: T; error: null } | { data: null; error: string }
 
-const upcomingDeadlines = [
-  { title: "Request Submission Closes", match: "India vs Australia - 2nd ODI", date: "2026-12-15", daysLeft: 22, type: "request" },
-  { title: "Approval Deadline", match: "India vs Australia - 2nd ODI", date: "2026-12-17", daysLeft: 24, type: "approval" },
-  { title: "Allocation Deadline", match: "India vs Australia - 2nd ODI", date: "2026-12-18", daysLeft: 25, type: "allocation" },
-  { title: "Distribution Deadline", match: "India vs Australia - 2nd ODI", date: "2026-12-19", daysLeft: 26, type: "distribution" },
-]
+interface DashboardData {
+  requests: SectionResult<Awaited<ReturnType<typeof getRequests>>>
+  matches: SectionResult<Awaited<ReturnType<typeof getMatches>>>
+  allocations: SectionResult<Awaited<ReturnType<typeof getAllocations>>>
+  inventory: SectionResult<Awaited<ReturnType<typeof getInventory>>>
+}
+
+async function loadSection<T>(request: Promise<T>): Promise<SectionResult<T>> {
+  try {
+    return { data: await request, error: null }
+  } catch (cause: unknown) {
+    if (cause instanceof DOMException && cause.name === "AbortError") throw cause
+    return { data: null, error: cause instanceof Error ? cause.message : "Unable to load this section." }
+  }
+}
+
+function loadDashboard(signal: AbortSignal): Promise<DashboardData> {
+  return Promise.all([
+    loadSection(getRequests(signal, { limit: 5 })),
+    loadSection(getMatches(signal, { limit: OVERVIEW_LIMIT })),
+    loadSection(getAllocations(signal, { limit: 1 })),
+    loadSection(getInventory(signal, { limit: OVERVIEW_LIMIT })),
+  ]).then(([requests, matches, allocations, inventory]) => ({ requests, matches, allocations, inventory }))
+}
 
 export default function DashboardPage() {
-  const { user, loading } = useSession()
+  const { data, loading, error, retry } = useOperationData(loadDashboard)
 
-  if (loading) {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      </MainLayout>
-    )
-  }
+  const upcomingMatches = (data?.matches.data?.matches ?? [])
+    .filter((match) => match.status === "UPCOMING" || match.status === "ACTIVE")
+    .sort((a, b) => a.matchDate.localeCompare(b.matchDate))
+    .slice(0, 5)
+  const loadedAllInventory = data?.inventory.data ? data.inventory.data.total <= data.inventory.data.inventory.length : false
 
   return (
     <MainLayout>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-            <p className="text-muted-foreground">Welcome back, {user?.fullName?.split(" ")[0]}. Here's your overview.</p>
-          </div>
-          <div className="flex gap-2">
-            <Button asChild>
-              <Link href="/requests/new">New Request</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/reports">View Reports</Link>
-            </Button>
-          </div>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          {statCards.map((stat) => (
-            <Card key={stat.title}>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">{stat.title}</p>
-                    <p className="text-2xl font-bold mt-1">{stat.value}</p>
-                    <div className="flex items-center gap-1 mt-2">
-                      <TrendingUp className={`${stat.color} h-4 w-4`} />
-                      <span className={`text-sm font-medium ${stat.trend === "up" ? "text-green-600" : "text-red-600"}`}>
-                        {stat.change} vs last week
-                      </span>
-                    </div>
-                  </div>
-                  <div className={`p-3 rounded-xl ${stat.bg}`}>
-                    <stat.icon className={`${stat.color} h-6 w-6`} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Main Content Grid */}
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Recent Requests */}
-          <Card className="lg:col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Recent Requests</CardTitle>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/requests">View All</Link>
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Request ID</TableHead>
-                      <TableHead>Requester</TableHead>
-                      <TableHead>Match</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Priority</TableHead>
-                      <TableHead>Date</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {recentRequests.map((req) => (
-                      <TableRow key={req.id}>
-                        <TableCell className="font-mono font-medium">
-                          <Link href={`/requests/${req.id}`} className="text-primary hover:underline">
-                            {req.id}
-                          </Link>
-                        </TableCell>
-                        <TableCell>{req.requester}</TableCell>
-                        <TableCell className="max-w-[200px] truncate">{req.match}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{req.category}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {req.approved > 0 ? `${req.approved} / ${req.requested}` : req.requested}
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(req.status)}>
-                            {formatStatus(req.status)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getPriorityColor(req.priority)}>
-                            {formatStatus(req.priority)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{formatDate(req.date)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+      <div className="space-y-5">
+        <PageHeader title="Operations overview" description="Current requests, match schedules, allocations, and ticket stock." onRefresh={retry} refreshing={loading} />
+        {error ? <ErrorState title="Unable to load the overview" error={error} onRetry={retry} loading={loading} /> : (
+          <>
+            {loading && !data ? <MetricSkeleton count={4} /> : data && (
+              <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Operational totals">
+                {data.requests.data
+                  ? <MetricCard label="Ticket requests" value={data.requests.data.total} icon={FileText} tone="blue" description="All recorded requests" />
+                  : <MetricCard label="Ticket requests" value="—" icon={FileText} tone="blue" description={data.requests.error ?? "Request data unavailable"} />}
+                {data.allocations.data
+                  ? <MetricCard label="Allocations" value={data.allocations.data.total} icon={Package} tone="violet" description="All allocation records" />
+                  : <MetricCard label="Allocations" value="—" icon={Package} tone="violet" description={data.allocations.error ?? "Allocation data unavailable"} />}
+                {data.inventory.data
+                  ? (
+                    <MetricCard
+                      label="Available tickets"
+                      value={data.inventory.data.summary.available}
+                      icon={Ticket}
+                      tone="green"
+                      description={loadedAllInventory ? `Across ${data.inventory.data.total} inventory pools` : `First ${data.inventory.data.inventory.length} of ${data.inventory.data.total} pools`}
+                    />
+                  )
+                  : <MetricCard label="Available tickets" value="—" icon={Ticket} tone="green" description={data.inventory.error ?? "Inventory data unavailable"} />}
+                {data.matches.data
+                  ? <MetricCard label="Matches" value={data.matches.data.total} icon={CalendarDays} description={upcomingMatches.length > 0 ? `${upcomingMatches.length} active/upcoming fixtures listed below` : "None in the latest 100 match records"} />
+                  : <MetricCard label="Matches" value="—" icon={CalendarDays} description={data.matches.error ?? "Match data unavailable"} />}
+              </section>
+            )}
+            {loading && !data ? (
+              <div className="grid gap-5 xl:grid-cols-[1.65fr_1fr]">
+                <Card className="shadow-none"><TableSkeleton rows={5} /></Card>
+                <Card className="shadow-none"><TableSkeleton rows={5} /></Card>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Side Panel */}
-          <div className="space-y-6">
-            {/* Upcoming Deadlines */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  Upcoming Deadlines
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {upcomingDeadlines.map((dl) => (
-                    <div key={dl.title} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                      <div className={`p-2 rounded-lg ${
-                        dl.type === "request" ? "bg-blue-100 text-blue-600" :
-                        dl.type === "approval" ? "bg-yellow-100 text-yellow-600" :
-                        dl.type === "allocation" ? "bg-green-100 text-green-600" :
-                        "bg-purple-100 text-purple-600"
-                      }`}>
-                        {dl.type === "request" && <FileText className="h-4 w-4" />}
-                        {dl.type === "approval" && <ClipboardList className="h-4 w-4" />}
-                        {dl.type === "allocation" && <Package className="h-4 w-4" />}
-                        {dl.type === "distribution" && <Truck className="h-4 w-4" />}
+            ) : data && (
+              <>
+                <div className="grid gap-5 xl:grid-cols-[1.65fr_1fr]">
+                  <Card className="min-w-0 shadow-none">
+                    <CardHeader className="flex-row items-start justify-between gap-3 space-y-0 p-4">
+                      <div>
+                        <CardTitle className="text-lg">Recent requests</CardTitle>
+                        <CardDescription className="mt-1">Latest requests by creation date</CardDescription>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{dl.title}</p>
-                        <p className="text-xs text-muted-foreground truncate">{dl.match}</p>
+                      <Button variant="ghost" size="sm" asChild><Link href="/requests">View all</Link></Button>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {data.requests.data === null ? (
+                        <ErrorState title="Requests unavailable" error={data.requests.error ?? "Unable to load requests."} onRetry={retry} loading={loading} />
+                      ) : data.requests.data.requests.length === 0 ? (
+                        <EmptyState icon={<FileText className="h-9 w-9" />} title="No requests recorded" description="Recent ticket requests will appear here when they are submitted." />
+                      ) : (
+                        <Table>
+                          <TableCaption className="sr-only">Most recent ticket requests</TableCaption>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead scope="col">Request</TableHead>
+                              <TableHead scope="col">Match &amp; categories</TableHead>
+                              <TableHead scope="col" className="text-right">Tickets</TableHead>
+                              <TableHead scope="col">Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {data.requests.data.requests.map((request) => (
+                              <TableRow key={request.id}>
+                                <TableCell className="min-w-44">
+                                  <p className="font-mono text-xs font-semibold">{request.requestNumber}</p>
+                                  <p className="mt-1.5 text-sm font-medium">{request.requester.fullName}</p>
+                                  <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(request.createdAt)}</p>
+                                </TableCell>
+                                <TableCell className="min-w-48">
+                                  <p className="max-w-60 text-sm">{request.match.title}</p>
+                                  <div className="mt-1.5 flex flex-wrap gap-1">
+                                    {request.items.length > 0
+                                      ? request.items.map((item) => <Badge key={item.id} variant="secondary">{item.ticketCategory.displayName}</Badge>)
+                                      : <span className="text-xs text-muted-foreground">No categories</span>}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <p className="font-medium tabular-nums">{formatNumber(request.totalRequested)}</p>
+                                  <p className="mt-1 text-xs text-muted-foreground">{formatNumber(request.totalApproved)} approved</p>
+                                  <Badge className={`${getPriorityColor(request.priority)} mt-2`}>{formatStatus(request.priority)}</Badge>
+                                </TableCell>
+                                <TableCell><Badge className={getStatusColor(request.status)}>{formatStatus(request.status)}</Badge></TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                  <Card className="min-w-0 shadow-none">
+                    <CardHeader className="flex-row items-start justify-between gap-3 space-y-0 p-4">
+                      <div>
+                        <CardTitle className="text-lg">Upcoming matches</CardTitle>
+                        <CardDescription className="mt-1">Latest recorded active and scheduled fixtures</CardDescription>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-primary">{dl.daysLeft} days</p>
-                        <p className="text-xs text-muted-foreground">{formatDate(dl.date)}</p>
-                      </div>
-                    </div>
-                  ))}
+                      <Button variant="ghost" size="sm" asChild><Link href="/matches">View all</Link></Button>
+                    </CardHeader>
+                    <CardContent className="p-4 pt-0">
+                      {data.matches.data === null ? (
+                        <ErrorState title="Matches unavailable" error={data.matches.error ?? "Unable to load matches."} onRetry={retry} loading={loading} />
+                      ) : upcomingMatches.length === 0 ? (
+                        <EmptyState icon={<CalendarDays className="h-9 w-9" />} title="No upcoming matches in this overview" description="No active or scheduled fixtures appear in the latest 100 match records. View all matches for the full schedule." />
+                      ) : (
+                        <div className="divide-y">
+                          {upcomingMatches.map((match) => (
+                            <div key={match.id} className="py-3 first:pt-0 last:pb-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-sm font-medium">{match.title}</p>
+                                <Badge className={`${getStatusColor(match.status)} shrink-0`}>{formatStatus(match.status)}</Badge>
+                              </div>
+                              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />{formatDate(match.matchDate)} · {match.startTime}</p>
+                              <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />{match.venue.name}, {match.venue.city}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Actions */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Button variant="outline" asChild className="h-auto py-3">
-                    <Link href="/requests/new">
-                      <FileText className="h-4 w-4 mr-2" />
-                      New Request
-                    </Link>
-                  </Button>
-                  <Button variant="outline" asChild className="h-auto py-3">
-                    <Link href="/approvals">
-                      <ClipboardList className="h-4 w-4 mr-2" />
-                      Review Approvals
-                    </Link>
-                  </Button>
-                  <Button variant="outline" asChild className="h-auto py-3">
-                    <Link href="/allocations">
-                      <Package className="h-4 w-4 mr-2" />
-                      Manage Allocations
-                    </Link>
-                  </Button>
-                  <Button variant="outline" asChild className="h-auto py-3">
-                    <Link href="/distribution">
-                      <Truck className="h-4 w-4 mr-2" />
-                      Issue Tickets
-                    </Link>
-                  </Button>
-                  <Button variant="outline" asChild className="h-auto py-3">
-                    <Link href="/inventory">
-                      <Ticket className="h-4 w-4 mr-2" />
-                      Check Inventory
-                    </Link>
-                  </Button>
-                  <Button variant="outline" asChild className="h-auto py-3">
-                    <Link href="/reports">
-                      <TrendingUp className="h-4 w-4 mr-2" />
-                      View Reports
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Alerts */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                  Alerts
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-50 border border-yellow-200">
-                    <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">5 requests pending approval {'>'} 48 hours</p>
-                      <p className="text-xs text-muted-foreground">Escalation may be required</p>
-                    </div>
+                <section aria-labelledby="inventory-overview-title">
+                  <div className="mb-3">
+                    <h2 id="inventory-overview-title" className="text-lg font-semibold">Inventory overview</h2>
+                    <p className="text-xs text-muted-foreground">
+                      {data.inventory.data && (loadedAllInventory
+                        ? `All ${data.inventory.data.total} inventory pools`
+                        : `First ${data.inventory.data.inventory.length} of ${data.inventory.data.total} pools; open inventory to page through the rest.`)}
+                    </p>
                   </div>
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 border border-red-200">
-                    <XCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">VIP category inventory below 10%</p>
-                      <p className="text-xs text-muted-foreground">Only 45 VIP tickets remaining</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
-                    <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">All media allocations completed</p>
-                      <p className="text-xs text-muted-foreground">200 media tickets distributed</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+                  {data.inventory.data === null ? (
+                    <ErrorState title="Inventory unavailable" error={data.inventory.error ?? "Unable to load inventory."} onRetry={retry} loading={loading} />
+                  ) : data.inventory.data.inventory.length === 0 ? (
+                    <Card className="shadow-none"><EmptyState icon={<Ticket className="h-9 w-9" />} title="No inventory recorded" description="Ticket stock totals will appear here when inventory pools are available." /></Card>
+                  ) : (
+                    <Card className="shadow-none">
+                      <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
+                        {([
+                          ["Total stock", data.inventory.data.summary.total],
+                          ["Reserved", data.inventory.data.summary.reserved],
+                          ["Allocated", data.inventory.data.summary.allocated],
+                          ["Issued", data.inventory.data.summary.issued],
+                        ] as const).map(([label, value]) => (
+                          <div key={label} className="flex items-center gap-3">
+                            <div className="rounded-md bg-muted p-2 text-primary" aria-hidden="true"><CheckCircle2 className="h-4 w-4" /></div>
+                            <div><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-bold tabular-nums">{formatNumber(value)}</p></div>
+                          </div>
+                        ))}
+                      </CardContent>
+                      <div className="flex justify-end border-t p-3"><Button variant="outline" size="sm" asChild><Link href="/inventory">View inventory</Link></Button></div>
+                    </Card>
+                  )}
+                </section>
+              </>
+            )}
+          </>
+        )}
       </div>
     </MainLayout>
   )

@@ -1,263 +1,61 @@
 "use client"
 
-import * as React from "react"
+import { useState } from "react"
+import { PackagePlus, Send, Truck } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
 import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Truck,
-  Search,
-  Filter,
-  Eye,
-  Plus,
-  Check,
-  Package,
-  User,
-  Download,
-} from "lucide-react"
-import { formatDate, formatStatus, getStatusColor } from "@/lib/utils"
-import { Input } from "@/components/ui/input"
-import Link from "next/link"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card, CardContent } from "@/components/ui/card"
+import { DataState, TableSkeleton } from "@/components/operations/data-state"
+import { FilterSelect, Pagination, SearchInput } from "@/components/operations/list-controls"
+import { PageHeader } from "@/components/operations/page-header"
+import { BatchList } from "@/components/lifecycle/batch-list"
+import { CreateBatchDialog } from "@/components/lifecycle/create-batch-dialog"
+import { IssueTicketsDialog } from "@/components/lifecycle/issue-tickets-dialog"
+import { useIssuanceOptions } from "@/components/lifecycle/use-issuance-options"
+import { useLifecycleData } from "@/components/lifecycle/use-lifecycle-data"
+import type { DistributionBatch, MatchOption } from "@/components/lifecycle/types"
+import { formatNumber } from "@/lib/utils"
 
-const batches = [
-  {
-    id: "DIST-2026-0012",
-    match: "India vs Australia - 2nd ODI",
-    method: "PERSONAL_COLLECTION",
-    status: "IN_PROGRESS",
-    totalTickets: 150,
-    issuedTickets: 89,
-    deliveredTickets: 67,
-    officer: "Distribution Officer 1",
-    createdAt: "2026-11-20T09:00:00",
-  },
-  {
-    id: "DIST-2026-0011",
-    match: "India vs Australia - 2nd ODI",
-    method: "OFFICE_DELIVERY",
-    status: "READY",
-    totalTickets: 200,
-    issuedTickets: 0,
-    deliveredTickets: 0,
-    officer: "Distribution Officer 2",
-    createdAt: "2026-11-20T08:00:00",
-  },
-  {
-    id: "DIST-2026-0010",
-    match: "India vs Australia - 2nd ODI",
-    method: "DIGITAL",
-    status: "COMPLETED",
-    totalTickets: 50,
-    issuedTickets: 50,
-    deliveredTickets: 50,
-    officer: "Distribution Officer 1",
-    createdAt: "2026-11-19T16:00:00",
-  },
-]
-
-const issuances = [
-  {
-    id: "ISS-2026-00042",
-    batchId: "DIST-2026-0012",
-    requestId: "REQ-2026-0042",
-    requester: "Dr. S. Ramesh",
-    match: "India vs Australia - 2nd ODI",
-    category: "VIP",
-    quantity: 15,
-    stand: "VIP Pavilion A",
-    serials: ["VIP-A-001", "VIP-A-002", "VIP-A-003"],
-    recipient: "Dr. S. Ramesh",
-    mobile: "+919876500001",
-    method: "PERSONAL_COLLECTION",
-    status: "COLLECTED",
-    issuedAt: "2026-11-20T10:30:00",
-    collectedAt: "2026-11-20T10:35:00",
-  },
-  {
-    id: "ISS-2026-00041",
-    batchId: "DIST-2026-0012",
-    requestId: "REQ-2026-0042",
-    requester: "Dr. S. Ramesh",
-    match: "India vs Australia - 2nd ODI",
-    category: "PREMIUM",
-    quantity: 10,
-    stand: "Premium Stand C",
-    serials: ["PRE-C-101", "PRE-C-102"],
-    recipient: "Mr. K. Venkatesh",
-    mobile: "+919876500002",
-    method: "REPRESENTATIVE_COLLECTION",
-    status: "DELIVERED",
-    issuedAt: "2026-11-20T10:40:00",
-    deliveredAt: "2026-11-20T10:45:00",
-  },
-  {
-    id: "ISS-2026-00040",
-    batchId: "DIST-2026-0011",
-    requestId: "REQ-2026-0041",
-    requester: "Mr. K. Venkatesh",
-    match: "India vs Australia - 2nd ODI",
-    category: "PREMIUM",
-    quantity: 50,
-    stand: "Premium Stand C",
-    serials: ["PRE-C-201", "PRE-C-202"],
-    recipient: "VDCA Office",
-    mobile: "+919876500006",
-    method: "OFFICE_DELIVERY",
-    status: "ISSUED",
-    issuedAt: "2026-11-20T11:00:00",
-  },
-]
+const PAGE_SIZE = 20
+const statusOptions = ["all", "PREPARING", "READY", "IN_PROGRESS", "COMPLETED", "CANCELLED"].map((value) => ({ value, label: value === "all" ? "All statuses" : value.toLowerCase().replace(/(^|_)(\w)/g, (_, prefix: string, letter: string) => `${prefix ? " " : ""}${letter.toUpperCase()}`) }))
 
 export default function DistributionPage() {
-  const { user, loading } = useSession()
-  const [activeTab, setActiveTab] = React.useState("batches")
+  const { user, loading: sessionLoading } = useSession()
+  const [search, setSearch] = useState("")
+  const [status, setStatus] = useState("all")
+  const [page, setPage] = useState(1)
+  const [batchOpen, setBatchOpen] = useState(false)
+  const [issueOpen, setIssueOpen] = useState(false)
+  const [issueBatchId, setIssueBatchId] = useState<string | undefined>()
+  const canRead = Boolean(user?.permissions.includes("distribution:read"))
+  const canWrite = Boolean(user?.permissions.includes("distribution:write"))
+  const canIssue = Boolean(user?.permissions.includes("distribution:issue"))
+  const canConfirm = Boolean(user?.permissions.includes("allocations:confirm"))
+  const { data, loading, error, refresh } = useLifecycleData<DistributionBatch>("distribution", { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, status }, !sessionLoading && canRead)
+  const matches = useLifecycleData<MatchOption>("matches", { limit: 100, offset: 0 }, batchOpen && canWrite && Boolean(user?.permissions.includes("matches:read")))
+  const batches = data?.items ?? []
+  const options = useIssuanceOptions(issueOpen && canIssue, batchOpen && canWrite, Boolean(user?.permissions.includes("requests:read")), Boolean(user?.permissions.includes("allocations:read")))
+  const query = search.trim().toLowerCase()
+  const filtered = batches.filter((batch) => !query || [batch.batchNumber, batch.match.title, batch.officer?.fullName, ...batch.issuances.flatMap((issuance) => [issuance.issuanceNumber, issuance.recipientName, issuance.ticketCategory])].some((value) => value?.toLowerCase().includes(query)))
 
-  if (loading) {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      </MainLayout>
-    )
-  }
+  function openIssue(batchId?: string) { setIssueBatchId(batchId); setIssueOpen(true) }
+  async function refreshAll() { await Promise.all([refresh(), options.refresh()]) }
 
   return (
     <MainLayout>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Distribution</h1>
-            <p className="text-muted-foreground">Issue and track ticket delivery</p>
-          </div>
-          <div className="flex gap-2">
-            <Button asChild>
-              <Link href="/distribution/new-batch">
-                <Plus className="h-4 w-4 mr-2" />
-                New Batch
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/distribution/issuances/new">
-                <Package className="h-4 w-4 mr-2" />
-                Issue Tickets
-              </Link>
-            </Button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="batches">Batches ({batches.length})</TabsTrigger>
-            <TabsTrigger value="issuances">Issuances ({issuances.length})</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="batches" className="space-y-4">
-            {batches.map((batch) => (
-              <Card key={batch.id}>
-                <CardContent className="p-6">
-                  <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto_auto]">
-                    <div>
-                      <Link href={`/distribution/batches/${batch.id}`} className="font-mono font-medium text-primary hover:underline">
-                        {batch.id}
-                      </Link>
-                      <p className="text-sm text-muted-foreground">{batch.match}</p>
-                    </div>
-                    <div>
-                      <Badge variant="outline">{batch.method.replace("_", " ")}</Badge>
-                      <Badge className={getStatusColor(batch.status)} ml-2>{formatStatus(batch.status)}</Badge>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4 text-center">
-                      <div>
-                        <p className="text-2xl font-bold">{batch.totalTickets}</p>
-                        <p className="text-xs text-muted-foreground">Total</p>
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-blue-600">{batch.issuedTickets}</p>
-                        <p className="text-xs text-muted-foreground">Issued</p>
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-green-600">{batch.deliveredTickets}</p>
-                        <p className="text-xs text-muted-foreground">Delivered</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-muted-foreground">{batch.officer}</p>
-                      <p className="text-xs text-muted-foreground">{formatDate(batch.createdAt)}</p>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Button onClick={() => {}} className="w-full">
-                        <Eye className="h-4 w-4 mr-2" />
-                        Manage
-                      </Button>
-                      <Button variant="outline" onClick={() => {}} className="w-full">
-                        <Download className="h-4 w-4 mr-2" />
-                        Manifest
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </TabsContent>
-
-          <TabsContent value="issuances">
-            <Card>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Issuance ID</TableHead>
-                        <TableHead>Batch</TableHead>
-                        <TableHead>Request</TableHead>
-                        <TableHead>Requester</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead className="text-right">Qty</TableHead>
-                        <TableHead>Stand</TableHead>
-                        <TableHead>Recipient</TableHead>
-                        <TableHead>Method</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Issued At</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {issuances.map((iss) => (
-                        <TableRow key={iss.id}>
-                          <TableCell className="font-mono font-medium text-sm">{iss.id}</TableCell>
-                          <TableCell>{iss.batchId}</TableCell>
-                          <TableCell>{iss.requestId}</TableCell>
-                          <TableCell>{iss.requester}</TableCell>
-                          <TableCell><Badge variant="secondary">{iss.category}</Badge></TableCell>
-                          <TableCell className="text-right font-medium">{iss.quantity}</TableCell>
-                          <TableCell>{iss.stand}</TableCell>
-                          <TableCell>{iss.recipient}</TableCell>
-                          <TableCell><Badge variant="outline" className="text-xs">{iss.method.replace("_", " ")}</Badge></TableCell>
-                          <TableCell><Badge className={getStatusColor(iss.status)}>{formatStatus(iss.status)}</Badge></TableCell>
-                          <TableCell className="text-muted-foreground text-sm">{formatDate(iss.issuedAt)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+      <div className="space-y-5">
+        <PageHeader title="Distribution" description="Prepare batches and issue confirmed ticket allocations to recipients." onRefresh={() => { void refresh() }} refreshing={loading} actions={<>{canWrite && <Button size="sm" variant="outline" onClick={() => setBatchOpen(true)}><PackagePlus className="mr-2 h-4 w-4" />New batch</Button>}{canIssue && <Button size="sm" onClick={() => openIssue()}><Send className="mr-2 h-4 w-4" />Issue tickets</Button>}</>} />
+        {!sessionLoading && !canRead ? <Alert variant="destructive"><Truck className="h-4 w-4" /><AlertTitle>Access unavailable</AlertTitle><AlertDescription>Your account does not have permission to view distribution.</AlertDescription></Alert> : <>
+          <Card className="shadow-none"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><SearchInput value={search} onChange={setSearch} label="Filter distribution batches on this page" placeholder="Filter by batch, match, recipient, issuance, or category…" /><FilterSelect value={status} onChange={(value) => { setStatus(value); setPage(1) }} label="Status" options={statusOptions} /></CardContent></Card>
+          <section aria-labelledby="batch-list-title"><div className="mb-3"><h2 id="batch-list-title" className="text-lg font-semibold">Distribution batches</h2><p className="text-sm text-muted-foreground">{data ? `${formatNumber(data.total)} batches with nested issuance records` : "Live distribution records"}</p></div>
+            <DataState loading={loading || sessionLoading} error={error} onRetry={() => { void refresh() }} skeleton={<Card className="shadow-none"><TableSkeleton rows={5} /></Card>}><BatchList batches={filtered} canIssue={canIssue} filtered={Boolean(query)} onClear={() => { setSearch(""); setStatus("all"); setPage(1) }} onIssue={openIssue} /></DataState>
+            {data && !error && !loading && <div className="mt-4 rounded-lg border bg-card"><Pagination page={page} pageSize={PAGE_SIZE} total={data.total} itemCount={filtered.length} onPageChange={setPage} filtered={Boolean(query)} /></div>}
+          </section>
+        </>}
+        <CreateBatchDialog open={batchOpen} matches={matches.data?.items ?? []} fallbackMatches={options.matches} matchesLoading={matches.loading} fallbackLoading={options.loading} onOpenChange={setBatchOpen} onCreated={refresh} />
+        <IssueTicketsDialog open={issueOpen} groups={options.groups} batches={options.batches} drafts={options.drafts} loading={options.loading} loadError={options.error} canConfirm={canConfirm} canReadRequests={Boolean(user?.permissions.includes("requests:read"))} initialBatchId={issueBatchId} onOpenChange={setIssueOpen} onChanged={refreshAll} />
       </div>
     </MainLayout>
   )

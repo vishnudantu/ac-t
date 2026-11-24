@@ -1,30 +1,27 @@
 #!/bin/sh
-# ACA TicketOps - Docker Entrypoint Script
-# Handles database migrations, seeding, and application startup
+set -eu
 
-set -e
-
-echo "🚀 Starting ACA TicketOps..."
-
-# Wait for database to be ready
-echo "⏳ Waiting for database..."
-until pg_isready -h "${DATABASE_HOST:-localhost}" -p "${DATABASE_PORT:-5432}" -U "${DATABASE_USER:-postgres}" > /dev/null 2>&1; do
-  echo "Database not ready, waiting..."
-  sleep 2
-done
-
-echo "✅ Database is ready"
-
-# Run database migrations
-echo "🔄 Running database migrations..."
-npx prisma migrate deploy
-
-# Check if seeding is needed (first run)
-if [ "${SEED_DATABASE:-false}" = "true" ]; then
-  echo "🌱 Seeding database with initial data..."
-  npx ts-node --compiler-options '{"module":"CommonJS"}' prisma/seed.ts
+# The app image contains only the standalone Next.js runtime. Apply reviewed
+# migrations separately with the compose `migrate` service, never with db push.
+if [ "${RUN_MIGRATIONS:-false}" = "true" ] || [ "${SEED_DATABASE:-false}" = "true" ]; then
+  printf '%s\n' 'Refusing implicit migration or demo seeding in the app container.' >&2
+  printf '%s\n' 'Apply reviewed migrations with the migrate service; seed only through an explicitly approved development workflow.' >&2
+  exit 1
 fi
 
-# Start the application
-echo "🎯 Starting application server..."
+if [ -z "${JWT_SECRET:-}" ] || [ "${#JWT_SECRET}" -lt 32 ]; then
+  printf '%s\n' 'JWT_SECRET must be provided at runtime and contain at least 32 characters.' >&2
+  exit 1
+fi
+
+if [ -z "${DATABASE_URL:-}" ]; then
+  printf '%s\n' 'DATABASE_URL must be provided at runtime.' >&2
+  exit 1
+fi
+
+if [ "${ALLOW_EPHEMERAL_DEV_AUTH:-false}" = "true" ]; then
+  printf '%s\n' 'ALLOW_EPHEMERAL_DEV_AUTH is not supported in this production-mode image.' >&2
+  exit 1
+fi
+
 exec "$@"
