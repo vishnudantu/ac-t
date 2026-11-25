@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACA TicketOps — Feature & DIY Kit</title>
+<style>
+  :root { --brand:#0f5132; --ink:#1a1a1a; --muted:#5a6a60; --line:#e3e9e4; --accent:#166534; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#f4f6f4;line-height:1.55}
+  .deck{max-width:1100px;margin:0 auto;padding:24px}
+  .slide{background:#fff;border:1px solid var(--line);border-radius:16px;padding:40px 44px;margin:24px 0;box-shadow:0 2px 8px rgba(0,0,0,.04);page-break-after:always;min-height:70vh}
+  .cover{background:linear-gradient(135deg,#0f5132,#166534);color:#fff;text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:80vh}
+  .cover h1{font-size:52px;letter-spacing:-1px;margin-bottom:16px}
+  .cover p{font-size:22px;opacity:.92}
+  .cover .sub{font-size:15px;margin-top:32px;opacity:.8}
+  h2{color:var(--brand);font-size:30px;margin-bottom:18px;border-bottom:3px solid var(--accent);padding-bottom:8px}
+  h3{color:var(--accent);font-size:19px;margin:22px 0 8px}
+  h4{font-size:16px;margin:16px 0 6px;color:var(--brand)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0 10px 24px}
+  li{margin:6px 0}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:15px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:#eef5ef;color:var(--brand);font-weight:600}
+  tr:nth-child(even) td{background:#fafbfa}
+  .pill{display:inline-block;background:#e6f2e8;color:var(--brand);border-radius:20px;padding:3px 12px;font-size:13px;font-weight:600;margin:2px 4px 2px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  .card{border:1px solid var(--line);border-radius:12px;padding:18px;background:#fbfdfb}
+  .card h3{margin-top:0}
+  .note{background:#fff8e6;border-left:4px solid #d4a017;padding:14px 18px;border-radius:0 8px 8px 0;margin:16px 0}
+  .tip{background:#eef5ff;border-left:4px solid #2f6fd0;padding:14px 18px;border-radius:0 8px 8px 0;margin:16px 0}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;margin:20px 0}
+  .flow .step{background:var(--brand);color:#fff;border-radius:10px;padding:10px 16px;font-weight:600;font-size:14px}
+  .flow .arrow{color:var(--accent);font-weight:700;font-size:20px}
+  .muted{color:var(--muted)}
+  .kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:13px}
+  .footer{text-align:center;color:var(--muted);font-size:13px;margin:30px 0}
+  @media print{ body{background:#fff} .slide{box-shadow:none;border:0;border-radius:0;min-height:auto} .cover{min-height:90vh} .deck{padding:0} }
+  @media(max-width:700px){ .slide{padding:24px} .grid2,.grid3{grid-template-columns:1fr} .cover h1{font-size:36px} }
+</style>
+</head>
+<body>
+<div class="deck">
+
+<!-- COVER -->
+<section class="slide cover">
+  <div class="pill" style="background:rgba(255,255,255,.18);color:#fff;font-size:14px">Andhra Cricket Association · Internal Platform</div>
+  <h1>ACA TicketOps</h1>
+  <p>Ticket Request → Approval → Allocation → Distribution → Reconciliation</p>
+  <p class="sub">Feature guide &amp; DIY kit · November 2026</p>
+</section>
+
+<!-- WHAT THE PLATFORM DOES -->
+<section class="slide">
+  <h2>What this platform does</h2>
+  <p>ACA TicketOps replaces fragmented spreadsheets, chat threads and paper records with one auditable system that carries a ticket request from intake to reconciliation. Every material change is logged with who, what, when and before/after values.</p>
+  <h3>The one-line lifecycle</h3>
+  <div class="flow">
+    <span class="step">Request</span><span class="arrow">→</span>
+    <span class="step">Approval</span><span class="arrow">→</span>
+    <span class="step">Allocation</span><span class="arrow">→</span>
+    <span class="step">Distribution</span><span class="arrow">→</span>
+    <span class="step">Reconciliation</span>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Who uses it</h3>
+      <ul>
+        <li><strong>Request Desk staff</strong> — capture requests on behalf of members</li>
+        <li><strong>Apex / approvers</strong> — review, approve, partially approve or reject</li>
+        <li><strong>Quota controllers</strong> — set stakeholder allocations per match</li>
+        <li><strong>Distribution officers</strong> — issue, hand over and track tickets</li>
+        <li><strong>Super Admin</strong> — roles, integrations, deletes, configuration</li>
+      </ul>
+    </div>
+    <div class="card"><h3>What you get</h3>
+      <ul>
+        <li>One source of truth for every ticket</li>
+        <li>Role-based access — people only see what they're allowed to do</li>
+        <li>Live inventory, quota and availability at every step</li>
+        <li>Full audit trail and printable reports</li>
+        <li>Real-time revenue with GST broken out</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- REQUEST INTAKE -->
+<section class="slide">
+  <h2>1 · Request intake</h2>
+  <p>Staff create a ticket request for a member. The form captures everything needed for an approver to decide without a phone call.</p>
+  <h3>What you fill in</h3>
+  <ul>
+    <li><strong>Requester</strong> — pick an existing person or create a new one (name, mobile, email, organisation)</li>
+    <li><strong>Match</strong> — the fixture this request is for</li>
+    <li><strong>Ticket type</strong> — Complimentary or Purchase (mandatory)</li>
+    <li><strong>Source &amp; priority</strong> — how it arrived, how urgent</li>
+    <li><strong>Ticket lines</strong> — one or more categories, each with quantity and notes</li>
+  </ul>
+  <div class="tip"><strong>Live availability.</strong> As you pick a category, the form shows remaining capacity, already-allocated count and quota remaining for that category — so you never over-request.</div>
+  <h3>Two save modes</h3>
+  <ul>
+    <li><strong>Save as draft</strong> — keeps it private, no approval yet</li>
+    <li><strong>Submit request</strong> — enters the approval workflow immediately</li>
+  </ul>
+  <h3>Built-in safeguards</h3>
+  <ul>
+    <li><strong>Duplicate validation</strong> — warns if a similar request exists for the same person, match and category; only authorised roles may proceed</li>
+    <li><strong>Complimentary/Purchase capture</strong> — the request clearly identifies intent</li>
+    <li><strong>Clarification chat</strong> — staff and approvers can exchange guidance right on the request</li>
+  </ul>
+</section>
+
+<!-- APPROVAL WORKFLOW -->
+<section class="slide">
+  <h2>2 · Approval workflow</h2>
+  <p>Submitted requests pass through sequential approval steps. Each match can have its own multi-step workflow; if none exists, a sensible one-step default is created automatically.</p>
+  <h3>Approving — full, partial, reject, return</h3>
+  <ul>
+    <li><strong>Approve (full)</strong> — approves all requested quantities</li>
+    <li><strong>Partial</strong> — approve a smaller number per item (e.g. 30 of 50)</li>
+    <li><strong>Reject</strong> — closes the request</li>
+    <li><strong>Return for clarification</strong> — sends it back to the requester with remarks</li>
+  </ul>
+  <div class="note"><strong>Quota-aware approvals.</strong> You cannot approve more than the stakeholder's remaining quota for that category. The decision dialog shows <em>remaining availability</em> and <em>quota left</em> per category, so you decide in seconds.</div>
+  <h3>Reapproval after edits</h3>
+  <p>Editing an already-approved request sends it back through the approval chain and clears the previous totals, preserving history.</p>
+  <h3>Super Admin oversight</h3>
+  <p>Super Admins (and users with <span class="kbd">approvals:escalate</span>) see and act on every pending step, not just their own assignments — so auto-created workflows never disappear from view.</p>
+</section>
+
+<!-- INVENTORY & CATEGORIES -->
+<section class="slide">
+  <h2>3 · Inventory &amp; ticket categories</h2>
+  <p>Inventory pools hold the actual stock: which stand, block, gate and format the tickets belong to, with quantities and face values.</p>
+  <h3>Every field is editable</h3>
+  <ul>
+    <li>Stand name, block, gate, row/seat ranges</li>
+    <li>Ticket format — physical, digital, both</li>
+    <li>Face value (GST-inclusive)</li>
+    <li>Total quantity (never below allocated/issued/void)</li>
+  </ul>
+  <h3>Purpose — three modes per pool</h3>
+  <table>
+    <tr><th>Mode</th><th>Meaning</th></tr>
+    <tr><td>100% Complimentary</td><td>All tickets free; ACA records the nominal GST price</td></tr>
+    <tr><td>100% Purchase</td><td>All tickets sold at face value</td></tr>
+    <tr><td>Mixed</td><td>Enter a complimentary quantity and a purchase quantity for the same pool</td></tr>
+  </table>
+  <h3>Pricing unit</h3>
+  <ul>
+    <li><strong>Per seat</strong> — face value applies to each ticket</li>
+    <li><strong>Per suite</strong> — face value applies to the whole suite box</li>
+  </ul>
+  <h3>Ticket categories</h3>
+  <p>Add, edit and delete categories (VIP, Premium, General stands, Media, Player guest, etc.) from <strong>Ticket Inventory → Ticket categories</strong>. Categories are reused across matches.</p>
+</section>
+
+<!-- QUOTAS -->
+<section class="slide">
+  <h2>4 · Quotas &amp; stakeholder allocation</h2>
+  <p>Quotas split a match's ticket stock across stakeholder groups. Each quota allocates a number of tickets per category — so an approver can't approve more than a stakeholder's share.</p>
+  <h3>The 15 built-in ACA stakeholder groups</h3>
+  <p class="muted">Apex, BCCI, TCM, ACA Districts, ACA Clubs, ACA International Players, VDCA, District Collector, Commissioner of Police, GVMC, ACA Staff, Disabled Cricketer, Stadium Obligation, Press/Media, Stadium Chairman. You can add, edit or delete any of these.</p>
+  <h3>How to set up</h3>
+  <ol>
+    <li><strong>Quota Templates</strong> (sidebar) — reusable stakeholder groups; add/edit/delete</li>
+    <li><strong>Quotas → New quota</strong> — pick a match and a template, then allocate quantities per category</li>
+    <li><strong>Edit</strong> any allocation later; capacity is validated so a category's allocations can't exceed its inventory</li>
+  </ol>
+  <div class="tip"><strong>Quotas and requests are linked.</strong> When you approve a request, the app checks the remaining quota for that category and refuses to exceed it. No over-allocation, no duplicate follow-ups.</div>
+</section>
+
+<!-- ALLOCATION & DISTRIBUTION -->
+<section class="slide">
+  <h2>5 · Allocation &amp; distribution</h2>
+  <h3>Allocation (reserving stock)</h3>
+  <ul>
+    <li>After approval, allocation officers reserve approved stock against inventory and quota pools</li>
+    <li>Created as a draft; must be <strong>confirmed</strong> by a user with the confirm permission</li>
+    <li>Transactions are concurrency-safe — two officers can't allocate the same tickets</li>
+  </ul>
+  <h3>Distribution (handing tickets over)</h3>
+  <ul>
+    <li><strong>Issuance</strong> — give tickets to recipients, physically or digitally</li>
+    <li><strong>Custody &amp; acknowledgement</strong> — who collected, when, signature/reference</li>
+    <li><strong>Returns</strong> — tickets given back, with reason</li>
+    <li><strong>Reconciliation</strong> — issued vs allocated vs returned all tracked</li>
+  </ul>
+  <div class="note"><strong>Why distribution matters.</strong> Approval decides <em>who gets how many</em>; allocation decides <em>from which stock</em>; distribution is <em>handing them over and proving it happened</em>. It's the last mile of the lifecycle.</div>
+</section>
+
+<!-- REPORTS & REVENUE -->
+<section class="slide">
+  <h2>6 · Reports, revenue &amp; reconciliation</h2>
+  <h3>Reports &amp; analytics</h3>
+  <ul>
+    <li>Live aggregates with a match filter</li>
+    <li>Export CSV (formula-injection guarded), Excel (styled), or print</li>
+  </ul>
+  <h3>Revenue dashboard</h3>
+  <ul>
+    <li>Live issued-ticket revenue split by <strong>complimentary</strong> and <strong>sale</strong></li>
+    <li>Purchase revenue = actual face value × issued</li>
+    <li>Complimentary revenue = your configured <strong>nominal price</strong> (default ₹499) × issued — so a ₹15,000 complimentary ticket doesn't load a large GST burden onto ACA</li>
+    <li><strong>18% GST</strong> computed separately on each side, with a net-of-GST total</li>
+    <li>A <strong>pending pipeline</strong> banner shows approved-but-not-yet-issued tickets so zero states are explained</li>
+  </ul>
+  <h3>Reconciliation</h3>
+  <p>One screen compares requested vs approved vs allocated vs issued vs remaining per match, with venue capacity shown prominently.</p>
+</section>
+
+<!-- GLOBAL SEARCH & NOTIFICATIONS -->
+<section class="slide">
+  <h2>7 · Search, notifications &amp; integrations</h2>
+  <h3>Global search</h3>
+  <p>Press <span class="kbd">Ctrl/Cmd + K</span> anywhere to search requests, requesters and matches by number, name, mobile, email or title.</p>
+  <h3>Notifications</h3>
+  <ul>
+    <li><strong>Email</strong> via SMTP — dependency-free Node client</li>
+    <li><strong>SMS &amp; WhatsApp</strong> via Twilio</li>
+    <li>All channels off by default; enable per-channel after configuring</li>
+    <li>Requesters notified after approval decisions</li>
+    <li><strong>Send test</strong> button delivers a test to your own account</li>
+    <li>Every attempt logged to the Notifications delivery log</li>
+  </ul>
+  <h3>Integrations page</h3>
+  <p>Configure SMTP, Twilio and District (Zomato) from the UI — secrets masked, env vars still work as fallback. District webhook runs dry-run until you enable live mode.</p>
+</section>
+
+<!-- ADMIN & SECURITY -->
+<section class="slide">
+  <h2>8 · Administration &amp; security</h2>
+  <div class="grid2">
+    <div class="card"><h3>Users &amp; roles</h3>
+      <ul>
+        <li>Create users, assign global roles</li>
+        <li>Edit permissions per role; create custom roles</li>
+        <li>Activate/deactivate (deactivation revokes sessions)</li>
+        <li>Super-admin-only deletes, guarded when history exists</li>
+      </ul>
+    </div>
+    <div class="card"><h3>Account</h3>
+      <ul>
+        <li>Edit your own profile (name, designation, department, mobile)</li>
+        <li>Change password with current-password verification; all sessions revoked</li>
+        <li>Admin password resets revoke the target's sessions</li>
+        <li>16→8 character minimum, no hardcoded credentials</li>
+      </ul>
+    </div>
+  </div>
+  <h3>Built-in protections</h3>
+  <ul>
+    <li>Database-backed, revocable sessions; permissions reloaded per request</li>
+    <li>Zod validation on every API boundary</li>
+    <li>Login and password-change rate limiting</li>
+    <li>Audit events for every material change</li>
+  </ul>
+</section>
+
+<!-- MOBILE -->
+<section class="slide">
+  <h2>9 · Mobile experience</h2>
+  <ul>
+    <li>Bottom tab bar for core destinations (Home, Requests, Approvals, Profile)</li>
+    <li>Card layouts for tables on small screens — no horizontal scrolling</li>
+    <li>Icon-only search on phones; off-canvas navigation</li>
+    <li>Thumb-friendly approval cards and dialogs</li>
+  </ul>
+  <div class="tip">Designed desktop-first with mobile tolerance — works on any phone, tablet or desktop without an app install.</div>
+</section>
+
+<!-- DIY: SETUP -->
+<section class="slide">
+  <h2>DIY kit · Deploy in 6 steps</h2>
+  <ol>
+    <li><strong>Get the code</strong> — <span class="kbd">git clone &lt;repo&gt;</span> then <span class="kbd">cd ac-tickets</span></li>
+    <li><strong>Install</strong> — <span class="kbd">npm ci</span> and <span class="kbd">npx prisma generate</span></li>
+    <li><strong>Configure</strong> — copy <span class="kbd">.env.example</span> to <span class="kbd">.env</span>; set <span class="kbd">DATABASE_URL</span>, <span class="kbd">JWT_SECRET</span> (32+ chars), <span class="kbd">ADMIN_INITIAL_PASSWORD</span></li>
+    <li><strong>Migrate</strong> — <span class="kbd">npx prisma migrate deploy</span> (baseline first if the DB came from <span class="kbd">db push</span>)</li>
+    <li><strong>Seed</strong> — <span class="kbd">npm run db:seed</span> for roles/permissions; insert quota templates with the templates-only SQL (don't run the full seed in production)</li>
+    <li><strong>Run</strong> — <span class="kbd">npm run build</span> then <span class="kbd">node scripts/start-demo.cjs</span> (local) or <span class="kbd">docker compose up -d --no-deps app</span> (server)</li>
+  </ol>
+  <p class="muted">Sign in as <strong>office@andhracricket.com</strong> with your configured admin password. Change it immediately in any shared environment.</p>
+</section>
+
+<!-- DIY: DAILY USE -->
+<section class="slide">
+  <h2>DIY kit · A typical match day</h2>
+  <ol>
+    <li><strong>Create the match</strong> — or <strong>Replicate</strong> an existing one to copy stands/inventory</li>
+    <li><strong>Add categories &amp; inventory pools</strong> — stands, gates, quantities, face values, purpose and pricing unit</li>
+    <li><strong>Set quotas</strong> — allocate per stakeholder per category</li>
+    <li><strong>Capture requests</strong> — staff submit with live availability</li>
+    <li><strong>Approve</strong> — full, partial, reject or return; quota caps enforced automatically</li>
+    <li><strong>Allocate &amp; confirm</strong> — reserve approved stock</li>
+    <li><strong>Distribute</strong> — issue tickets, record custody and returns</li>
+    <li><strong>Reconcile &amp; report</strong> — revenue with GST breakdown, exports, audit trail</li>
+  </ol>
+  <div class="tip"><strong>Golden rule:</strong> never edit the database by hand for operational changes. Use the UI so every change is audited and counters stay correct.</div>
+</section>
+
+<!-- TROUBLESHOOTING -->
+<section class="slide">
+  <h2>DIY kit · Troubleshooting</h2>
+  <table>
+    <tr><th>Symptom</th><th>Fix</th></tr>
+    <tr><td>Page shows "Internal server error" after a new feature</td><td>Usually a stale build or a missing table/column. Run <span class="kbd">npx prisma migrate deploy</span> then rebuild (<span class="kbd">docker compose build --no-cache app</span>).</td></tr>
+    <tr><td>New dropdown option not appearing</td><td>Hard-refresh (<span class="kbd">Ctrl+Shift+R</span>) or open an incognito window — the browser cached the old bundle.</td></tr>
+    <tr><td>Revenue shows 0</td><td>Tickets haven't been issued yet. The pending-pipeline banner explains it; issue tickets through distribution to populate revenue.</td></tr>
+    <tr><td>Approvals page is empty</td><td>Steps are assigned to a role you don't hold. Super Admin and <span class="kbd">approvals:escalate</span> see all steps.</td></tr>
+    <tr><td>"No active approval workflow"</td><td>Resolved automatically — the app creates a default one-step workflow on first submit.</td></tr>
+    <tr><td>Permission error <span class="kbd">42501</span></td><td>The app's DB role lacks privileges on a new table. Run the matching <span class="kbd">GRANT</span> for your app role.</td></tr>
+  </table>
+</section>
+
+<!-- CLOSING -->
+<section class="slide">
+  <h2>What you now have</h2>
+  <div class="grid3">
+    <div class="card"><h3>Operational</h3><p>Request → approval → allocation → distribution → reconciliation, with quota caps, availability and duplicate guards built in.</p></div>
+    <div class="card"><h3>Financial</h3><p>Live revenue segregated by complimentary and sale, GST-inclusive pricing with the GST component shown separately on each side.</p></div>
+    <div class="card"><h3>Governance</h3><p>Role-based access, super-admin deletes, revocable sessions, and a complete audit trail for every change.</p></div>
+  </div>
+  <p style="margin-top:30px" class="muted">ACA TicketOps · Internal platform for the Andhra Cricket Association · Feature guide &amp; DIY kit · November 2026</p>
+</section>
+
+</div>
+<p class="footer">ACA TicketOps — Feature guide &amp; DIY kit · Present this file in a browser, or print to PDF (Ctrl/Cmd+P → Save as PDF)</p>
+</body>
+</html>
