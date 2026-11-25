@@ -69,7 +69,7 @@ export function ApprovalQueue({ steps, canDecide, historical, filtered, onClear,
               <div className="mt-4 overflow-hidden rounded-md border">
                 <Table>
                   <TableHeader><TableRow><TableHead scope="col">Request item</TableHead><TableHead scope="col" className="text-right">Requested</TableHead><TableHead scope="col" className="text-right">Approved</TableHead></TableRow></TableHeader>
-                  <TableBody>{request.items.map((item, index) => <TableRow key={item.id}><TableCell>{item.ticketCategory?.displayName ?? `Request item ${index + 1}`}</TableCell><TableCell className="text-right tabular-nums">{item.requestedQuantity}</TableCell><TableCell className="text-right font-medium tabular-nums">{item.approvedQuantity}</TableCell></TableRow>)}</TableBody>
+                  <TableBody>{request.items.map((item, index) => <TableRow key={item.id}><TableCell className="category-flash font-bold text-destructive">{item.ticketCategory?.displayName ?? `Request item ${index + 1}`}</TableCell><TableCell className="text-right tabular-nums">{item.requestedQuantity}</TableCell><TableCell className="text-right font-medium tabular-nums">{item.approvedQuantity}</TableCell></TableRow>)}</TableBody>
                 </Table>
               </div>
               {actionable && (
