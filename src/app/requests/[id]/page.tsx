@@ -39,7 +39,8 @@ export default function RequestDetailPage() {
   const [error, setError] = React.useState("")
   const { toast } = useToast()
   const [editOpen, setEditOpen] = React.useState(false)
-  const [editForm, setEditForm] = React.useState({ priority: "NORMAL", purpose: "", specialInstructions: "", sourceReference: "" })
+  const [editForm, setEditForm] = React.useState<{ priority: string; purpose: string; specialInstructions: string; sourceReference: string; items: { id: string; ticketCategoryId: string; displayName: string; requestedQuantity: string; notes: string }[] }>({ priority: "NORMAL", purpose: "", specialInstructions: "", sourceReference: "", items: [] })
+  const [editCategories, setEditCategories] = React.useState<{ id: string; displayName: string }[]>([])
   const [editSaving, setEditSaving] = React.useState(false)
   const [editError, setEditError] = React.useState("")
   const canRead = Boolean(user?.permissions.includes("requests:read"))
@@ -69,9 +70,30 @@ export default function RequestDetailPage() {
 
   function openEdit() {
     if (!request) return
-    setEditForm({ priority: request.priority, purpose: request.purpose || "", specialInstructions: request.specialInstructions || "", sourceReference: request.sourceReference || "" })
+    setEditForm({
+      priority: request.priority, purpose: request.purpose || "",
+      specialInstructions: request.specialInstructions || "", sourceReference: request.sourceReference || "",
+      items: request.items.map((item) => ({
+        id: item.id, ticketCategoryId: item.ticketCategory.id, displayName: item.ticketCategory.displayName,
+        requestedQuantity: String(item.requestedQuantity), notes: item.notes || "",
+      })),
+    })
+    fetch(`/api/matches/${encodeURIComponent(request.match.id)}/categories`)
+      .then((r) => r.json())
+      .then((body: { categories?: { id: string; displayName: string }[] }) => setEditCategories(body.categories || []))
+      .catch(() => setEditCategories([]))
     setEditError("")
     setEditOpen(true)
+  }
+
+  function addEditItem() {
+    setEditForm((current) => ({ ...current, items: [...current.items, { id: "", ticketCategoryId: editCategories[0]?.id || "", displayName: "", requestedQuantity: "1", notes: "" }] }))
+  }
+  function removeEditItem(index: number) {
+    setEditForm((current) => ({ ...current, items: current.items.filter((_, i) => i !== index) }))
+  }
+  function updateEditItem(index: number, field: string, value: string) {
+    setEditForm((current) => ({ ...current, items: current.items.map((item, i) => i === index ? { ...item, [field]: value } : item) }))
   }
 
   async function saveEdit(event: React.FormEvent) {
@@ -82,7 +104,11 @@ export default function RequestDetailPage() {
     try {
       const response = await fetch(`/api/requests/${encodeURIComponent(request.id)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priority: editForm.priority, purpose: editForm.purpose || null, specialInstructions: editForm.specialInstructions || null, sourceReference: editForm.sourceReference || null }),
+        body: JSON.stringify({
+          priority: editForm.priority, purpose: editForm.purpose || null,
+          specialInstructions: editForm.specialInstructions || null, sourceReference: editForm.sourceReference || null,
+          items: editForm.items.map((item) => ({ ticketCategoryId: item.ticketCategoryId, requestedQuantity: Number(item.requestedQuantity), notes: item.notes || null })),
+        }),
       })
       const body = await response.json() as { error?: string }
       if (!response.ok) throw new Error(body.error || "Unable to update request")
@@ -108,7 +134,7 @@ export default function RequestDetailPage() {
         <p className="flex items-center gap-2 text-sm text-muted-foreground"><FileText className="h-4 w-4" />{request._count.attachments} attachments · {request._count.comments} comments · {request._count.approvalSteps} approval steps</p>
         <RequestChat requestId={request.id} canWrite={canWrite} />
       </>}
-      <Dialog open={editOpen} onOpenChange={(open) => { if (!open && !editSaving) setEditOpen(false) }}><DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>Edit request {request?.requestNumber}</DialogTitle><DialogDescription>Update priority and notes. Ticket quantities are edited through the approval and allocation workflow.</DialogDescription></DialogHeader><form onSubmit={saveEdit} className="space-y-4">{editError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{editError}</p>}<div className="space-y-2"><Label htmlFor="edit-priority">Priority</Label><select id="edit-priority" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={editForm.priority} onChange={(event) => setEditForm({ ...editForm, priority: event.target.value })} disabled={editSaving}>{['LOW', 'NORMAL', 'HIGH', 'PROTOCOL'].map((priority) => <option key={priority} value={priority}>{formatStatus(priority)}</option>)}</select></div><div className="space-y-2"><Label htmlFor="edit-purpose">Purpose</Label><Input id="edit-purpose" maxLength={2000} value={editForm.purpose} onChange={(event) => setEditForm({ ...editForm, purpose: event.target.value })} disabled={editSaving} /></div><div className="space-y-2"><Label htmlFor="edit-instructions">Special instructions</Label><Input id="edit-instructions" maxLength={2000} value={editForm.specialInstructions} onChange={(event) => setEditForm({ ...editForm, specialInstructions: event.target.value })} disabled={editSaving} /></div><div className="space-y-2"><Label htmlFor="edit-source">Source reference</Label><Input id="edit-source" maxLength={200} value={editForm.sourceReference} onChange={(event) => setEditForm({ ...editForm, sourceReference: event.target.value })} disabled={editSaving} /></div><DialogFooter><Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={editSaving}>Cancel</Button><Button type="submit" disabled={editSaving}>{editSaving ? "Saving…" : "Save changes"}</Button></DialogFooter></form></DialogContent></Dialog>
+      <Dialog open={editOpen} onOpenChange={(open) => { if (!open && !editSaving) setEditOpen(false) }}><DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>Edit request {request?.requestNumber}</DialogTitle><DialogDescription>Update priority, notes and ticket lines. Editing an approved request reopens it for reapproval.</DialogDescription></DialogHeader><form onSubmit={saveEdit} className="space-y-4">{editError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{editError}</p>}<div className="space-y-2"><Label htmlFor="edit-priority">Priority</Label><select id="edit-priority" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={editForm.priority} onChange={(event) => setEditForm({ ...editForm, priority: event.target.value })} disabled={editSaving}>{['LOW', 'NORMAL', 'HIGH', 'PROTOCOL'].map((priority) => <option key={priority} value={priority}>{formatStatus(priority)}</option>)}</select></div><div className="space-y-2"><Label htmlFor="edit-purpose">Purpose</Label><Input id="edit-purpose" maxLength={2000} value={editForm.purpose} onChange={(event) => setEditForm({ ...editForm, purpose: event.target.value })} disabled={editSaving} /></div><div className="space-y-2"><Label htmlFor="edit-instructions">Special instructions</Label><Input id="edit-instructions" maxLength={2000} value={editForm.specialInstructions} onChange={(event) => setEditForm({ ...editForm, specialInstructions: event.target.value })} disabled={editSaving} /></div><div className="space-y-2"><Label htmlFor="edit-source">Source reference</Label><Input id="edit-source" maxLength={200} value={editForm.sourceReference} onChange={(event) => setEditForm({ ...editForm, sourceReference: event.target.value })} disabled={editSaving} /></div><div className="space-y-3 rounded-md border p-3"><div className="flex items-center justify-between"><p className="text-sm font-medium">Ticket lines</p><Button type="button" size="sm" variant="outline" onClick={addEditItem} disabled={editSaving}>+ Add category</Button></div>{editForm.items.map((item, index) => <div key={item.id || index} className="grid grid-cols-[1fr_80px_auto] items-end gap-2"><div className="space-y-1"><Label className="text-xs">Category</Label><select className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm" value={item.ticketCategoryId} onChange={(event) => updateEditItem(index, "ticketCategoryId", event.target.value)} disabled={editSaving}>{editCategories.map((category) => <option key={category.id} value={category.id}>{category.displayName}</option>)}</select></div><div className="space-y-1"><Label className="text-xs">Qty</Label><Input type="number" min={1} required value={item.requestedQuantity} onChange={(event) => updateEditItem(index, "requestedQuantity", event.target.value)} disabled={editSaving} /></div><Button type="button" variant="ghost" size="sm" onClick={() => removeEditItem(index)} disabled={editSaving || editForm.items.length <= 1} aria-label="Remove line">×</Button></div>)}</div><DialogFooter><Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={editSaving}>Cancel</Button><Button type="submit" disabled={editSaving}>{editSaving ? "Saving…" : "Save changes"}</Button></DialogFooter></form></DialogContent></Dialog>
     </div></MainLayout>
   )
 }

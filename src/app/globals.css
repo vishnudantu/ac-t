@@ -164,13 +164,10 @@
 .priority-high { @apply bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400; }
 .priority-urgent { @apply bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400; }
 .priority-protocol { @apply bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400; }
-/* Flashing emphasis for requested ticket categories in the approval queue */
-@keyframes category-flash {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
-}
+/* Subtle emphasis for requested ticket categories in the approval queue */
 .category-flash {
-  animation: category-flash 1.2s ease-in-out infinite;
+  font-weight: 700;
+  color: var(--destructive);
 }
 @media (prefers-reduced-motion: reduce) {
   .category-flash { animation: none; }
