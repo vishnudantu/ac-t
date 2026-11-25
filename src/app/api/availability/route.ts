@@ -32,6 +32,16 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     },
     orderBy: { sortOrder: 'asc' },
   })
+  // Quota allocations cap how many tickets each stakeholder can draw per category.
+  const quotaRows = await prisma.quotaAllocation.findMany({
+    where: { quotaPool: { matchId, isActive: true } },
+    select: { ticketCategoryId: true, allocatedQuantity: true, consumedQuantity: true },
+  })
+  const quotaByCategory = new Map<string, { allocated: number; consumed: number }>()
+  for (const row of quotaRows) {
+    const current = quotaByCategory.get(row.ticketCategoryId) ?? { allocated: 0, consumed: 0 }
+    quotaByCategory.set(row.ticketCategoryId, { allocated: current.allocated + row.allocatedQuantity, consumed: current.consumed + row.consumedQuantity })
+  }
 
   const rows = categories.map((category) => {
     const capacity = category.inventoryPools.reduce((sum, pool) => sum + pool.totalQuantity, 0)
@@ -49,6 +59,9 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       remaining,
       unallocatedApproved,
       issuable: Math.max(0, remaining - unallocatedApproved),
+      quotaAllocated: quotaByCategory.get(category.id)?.allocated ?? 0,
+      quotaConsumed: quotaByCategory.get(category.id)?.consumed ?? 0,
+      quotaRemaining: Math.max(0, (quotaByCategory.get(category.id)?.allocated ?? 0) - (quotaByCategory.get(category.id)?.consumed ?? 0)),
     }
   })
 

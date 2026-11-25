@@ -7,17 +7,19 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatCurrency(amount: number | string): string {
   const num = typeof amount === 'string' ? parseFloat(amount) : amount
+  const safe = Number.isFinite(num) ? num : 0
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(num)
+  }).format(safe)
 }
 
 export function formatNumber(num: number | string): string {
   const n = typeof num === 'string' ? parseInt(num) : num
-  return new Intl.NumberFormat('en-IN').format(n)
+  const safe = Number.isFinite(n) ? n : 0
+  return new Intl.NumberFormat('en-IN').format(safe)
 }
 
 export function formatDate(date: Date | string, options?: Intl.DateTimeFormatOptions): string {

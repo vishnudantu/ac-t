@@ -33,13 +33,13 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
   const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [availability, setAvailability] = useState<Record<string, { remaining: number; capacity: number }>>({})
+  const [availability, setAvailability] = useState<Record<string, { remaining: number; capacity: number; quotaRemaining?: number }>>({})
 
   useEffect(() => {
     if (!step || !open) return
     fetch(`/api/availability?matchId=${encodeURIComponent(step.request.match.id)}`, { cache: "no-store" })
       .then((response) => response.json())
-      .then((body: { categories?: { id: string; remaining: number; capacity: number }[] }) => {
+      .then((body: { categories?: { id: string; remaining: number; capacity: number; quotaRemaining?: number }[] }) => {
         const map: Record<string, { remaining: number; capacity: number }> = {}
         for (const row of body.categories || []) map[row.id] = { remaining: row.remaining, capacity: row.capacity }
         setAvailability(map)
@@ -111,6 +111,7 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
                     {item.ticketCategory && availability[item.ticketCategory.id] && <p className={`mt-1 text-xs ${(quantities[item.id] ?? item.approvedQuantity) > availability[item.ticketCategory.id].remaining ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                       {availability[item.ticketCategory.id].remaining} of {availability[item.ticketCategory.id].capacity} available
                       {(quantities[item.id] ?? item.approvedQuantity) > availability[item.ticketCategory.id].remaining ? " — insufficient ticket availability" : ""}
+                      {availability[item.ticketCategory.id].quotaRemaining !== undefined && <span className="ml-2 font-medium text-primary">· quota left {availability[item.ticketCategory.id].quotaRemaining}</span>}
                     </p>}
                   </div>
                   <Input

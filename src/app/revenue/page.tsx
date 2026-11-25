@@ -31,6 +31,7 @@ interface RevenueData {
     complimentaryIssued: number; saleIssued: number; complimentaryRevenue: number; saleRevenue: number
     gstOnComplimentary: number; gstOnSale: number
     totalIssued: number; totalRevenue: number; gstTotal: number; netOfGst: number
+    pendingApproved?: number; pendingAllocated?: number
   }
   rows: RevenueRow[]
 }
@@ -74,13 +75,14 @@ export default function RevenuePage() {
     </CardContent></Card>
     {!sessionLoading && !canRead ? <p role="alert" className="text-destructive">Your account does not have permission to view revenue.</p>
       : <DataState loading={loading} error={error} onRetry={() => setAttempt((value) => value + 1)} skeleton={<Card><TableSkeleton /></Card>}>
-        {!data ? null : data.rows.length === 0 ? <Card><EmptyState icon={<IndianRupee className="h-10 w-10" />} title="No issued tickets yet" description="Revenue appears once tickets are issued through the allocation and distribution workflow." /></Card> : <>
+        {!data ? null : data.rows.length === 0 ? <Card><EmptyState icon={<IndianRupee className="h-10 w-10" />} title="No issued tickets yet" description="Revenue appears once tickets are issued through the allocation and distribution workflow. Approved-but-not-yet-issued tickets will show here as a pending pipeline." /></Card> : <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Revenue totals">
             <MetricCard label="Total issued" value={formatNumber(data.totals.totalIssued)} icon={Ticket} tone="blue" description="Complimentary + sale tickets issued" />
             <MetricCard label="Purchase revenue" value={formatCurrency(data.totals.saleRevenue)} icon={TrendingUp} tone="violet" description={`GST on sale: ${formatCurrency(data.totals.gstOnSale)}`} />
             <MetricCard label="Complimentary revenue" value={formatCurrency(data.totals.complimentaryRevenue)} icon={IndianRupee} tone="green" description={`GST borne by ACA: ${formatCurrency(data.totals.gstOnComplimentary)}`} />
             <MetricCard label="Net of GST" value={formatCurrency(data.totals.netOfGst)} icon={IndianRupee} tone="amber" description={`Total GST component: ${formatCurrency(data.totals.gstTotal)}`} />
           </section>
+          {(data.totals.pendingApproved ?? 0) > 0 && <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/30"><CardContent className="flex items-center gap-3 p-4"><TrendingUp className="h-5 w-5 text-amber-700" /><p className="text-sm"><strong>{formatNumber(data.totals.pendingApproved ?? 0)} tickets approved, awaiting allocation/issuance.</strong> This is the pending pipeline — revenue above reflects only tickets already issued. Once these are distributed, totals update automatically.</p></CardContent></Card>}
           <Card className="shadow-none"><CardHeader className="p-4 pb-3"><CardTitle className="text-lg">Breakdown by category</CardTitle></CardHeader><CardContent className="p-0">
             <div className="overflow-x-auto"><Table>
               <TableHeader><TableRow><TableHead>Match / category</TableHead><TableHead>Purpose</TableHead><TableHead className="text-right">Complimentary issued</TableHead><TableHead className="text-right">Sale issued</TableHead><TableHead className="text-right">Complimentary ₹</TableHead><TableHead className="text-right">Sale ₹</TableHead><TableHead className="text-right">GST (compl.)</TableHead><TableHead className="text-right">GST (sale)</TableHead></TableRow></TableHeader>

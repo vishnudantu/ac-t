@@ -20,13 +20,21 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       where: matchId ? { matchId } : undefined,
       select: {
         ticketPurpose: true, pricingUnit: true, faceValue: true, totalQuantity: true,
-        issuedQuantity: true, complimentaryQuantity: true, purchaseQuantity: true,
+        issuedQuantity: true, allocatedQuantity: true, complimentaryQuantity: true, purchaseQuantity: true,
         ticketCategory: { select: { displayName: true } },
         match: { select: { id: true, title: true } },
       },
     }),
     getIntegrationConfig(),
   ])
+  // Approved-but-not-yet-issued pipeline: value still in approval→issuance flow.
+  const pipeline = await prisma.requestItem.aggregate({
+    where: {
+      request: { status: { in: ['APPROVED', 'PARTIALLY_APPROVED'] }, ...(matchId ? { matchId } : {}) },
+      approvedQuantity: { gt: 0 },
+    },
+    _sum: { approvedQuantity: true, allocatedQuantity: true, issuedQuantity: true },
+  })
 
   const nominalComplimentary = Number(configValue(config, 'pricing.complimentary_setoff_per_ticket') || 499)
   const gstRate = 0.18
@@ -84,6 +92,9 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       totalRevenue: totals.complimentaryRevenue + totals.saleRevenue,
       gstTotal: totals.gstOnComplimentary + totals.gstOnSale,
       netOfGst: (totals.complimentaryRevenue + totals.saleRevenue) - (totals.gstOnComplimentary + totals.gstOnSale),
+      // Approved-not-yet-issued pipeline so the page is meaningful before issuance.
+      pendingApproved: (pipeline._sum.approvedQuantity ?? 0) - (pipeline._sum.issuedQuantity ?? 0),
+      pendingAllocated: pipeline._sum.allocatedQuantity ?? 0,
     },
     rows,
   })

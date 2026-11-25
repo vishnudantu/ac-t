@@ -15,6 +15,37 @@ import {
 import { prisma } from '@/lib/prisma'
 
 type Transaction = Prisma.TransactionClient
+
+/**
+ * Ensures the approved quantity for a category does not exceed the stakeholder's
+ * remaining quota for that category. Runs inside the approval transaction so a
+ * cap violation aborts the whole decision rather than leaving partial state.
+ */
+async function assertApprovalWithinQuota(
+  tx: Transaction,
+  matchId: string,
+  decisions: Array<{ requestItemId: string; approvedQuantity: number }>,
+  requestItems: Array<{ id: string; ticketCategoryId: string }>,
+): Promise<void> {
+  const categoryByItem = new Map(requestItems.map((item) => [item.id, item.ticketCategoryId]))
+  const quantities = new Map<string, number>()
+  for (const decision of decisions) {
+    const categoryId = categoryByItem.get(decision.requestItemId)
+    if (categoryId) quantities.set(categoryId, (quantities.get(categoryId) ?? 0) + decision.approvedQuantity)
+  }
+  for (const [categoryId, approved] of quantities) {
+    const quota = await tx.quotaAllocation.aggregate({
+      where: { ticketCategoryId: categoryId, quotaPool: { matchId, isActive: true } },
+      _sum: { allocatedQuantity: true, consumedQuantity: true },
+    })
+    const allocated = quota._sum.allocatedQuantity ?? 0
+    const consumed = quota._sum.consumedQuantity ?? 0
+    const remaining = allocated - consumed
+    if (approved > remaining) {
+      throw new LifecycleRuleError(`Approval exceeds the remaining quota for this category. Remaining: ${Math.max(0, remaining)}`, 409)
+    }
+  }
+}
 type ApprovalInput = z.infer<typeof approvalActionSchema>
 type ApprovalStep = Prisma.ApprovalStepGetPayload<{
   include: {
@@ -90,6 +121,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         throw new LifecycleRuleError('This step does not allow return for clarification', 409)
       }
       assertDecisionQuantities(step.request.items, input, step.stepDefinition.allowPartialApproval)
+      // Quota-aware cap: an approval cannot exceed the stakeholder's remaining
+      // allocation for that category. This prevents over-allocation and the
+      // duplicate calls it causes downstream.
+      if (input.action === 'APPROVE' || input.action === 'PARTIAL') {
+        await assertApprovalWithinQuota(tx, step.request.matchId, input.items ?? [], step.request.items)
+      }
       await claimStepAndRequest(tx, step, input.action)
       return input.action === 'APPROVE' || input.action === 'PARTIAL'
         ? approveStep(tx, step, input, session)
