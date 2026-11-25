@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { getIntegrationConfig, configValue } from './integrations'
 import { sendSmtpMail } from './smtp'
 
 export type NotificationChannel = 'EMAIL' | 'SMS' | 'WHATSAPP'
@@ -11,8 +12,11 @@ export interface NotificationInput {
   templateKey?: string
 }
 
-function envEnabled(channel: NotificationChannel): boolean {
-  return process.env[`ENABLE_${channel}`] === 'true'
+async function envEnabled(channel: NotificationChannel): Promise<boolean> {
+  const config = await getIntegrationConfig()
+  const key = `integration.${channel.toLowerCase()}.enabled`
+  const value = configValue(config, key, `ENABLE_${channel}`)
+  return value === 'true'
 }
 
 /**
@@ -43,7 +47,7 @@ export async function sendNotification(input: NotificationInput): Promise<void> 
     },
   })
 
-  if (!envEnabled(input.channel)) {
+  if (!await envEnabled(input.channel)) {
     await prisma.notificationLog.update({ where: { id: log.id }, data: { status: 'SKIPPED', errorMessage: `${input.channel} is disabled by configuration` } })
     return
   }
@@ -67,7 +71,7 @@ async function sendEmail(to: string, subject: string, body: string): Promise<voi
 
 async function sendSms(to: string | null, body: string): Promise<void> {
   if (!to) throw new Error('Recipient has no mobile number')
-  const { accountSid, authToken, from } = twilioConfig()
+  const { accountSid, authToken, from } = await twilioConfig()
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
     method: 'POST',
     headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -78,7 +82,7 @@ async function sendSms(to: string | null, body: string): Promise<void> {
 
 async function sendWhatsApp(to: string | null, body: string): Promise<void> {
   if (!to) throw new Error('Recipient has no mobile number')
-  const { accountSid, authToken, from } = twilioConfig()
+  const { accountSid, authToken, from } = await twilioConfig()
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
     method: 'POST',
     headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -87,10 +91,11 @@ async function sendWhatsApp(to: string | null, body: string): Promise<void> {
   if (!response.ok) throw new Error(`WhatsApp delivery failed (${response.status})`)
 }
 
-function twilioConfig(): { accountSid: string; authToken: string; from: string } {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID
-  const authToken = process.env.TWILIO_AUTH_TOKEN
-  const from = process.env.TWILIO_FROM
+async function twilioConfig(): Promise<{ accountSid: string; authToken: string; from: string }> {
+  const config = await getIntegrationConfig()
+  const accountSid = configValue(config, 'integration.twilio.account_sid', 'TWILIO_ACCOUNT_SID')
+  const authToken = configValue(config, 'integration.twilio.auth_token', 'TWILIO_AUTH_TOKEN')
+  const from = configValue(config, 'integration.twilio.from', 'TWILIO_FROM')
   if (!accountSid || !authToken || !from) throw new Error('Twilio is not configured')
   return { accountSid, authToken, from }
 }

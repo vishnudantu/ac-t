@@ -1,4 +1,5 @@
 import net from 'node:net'
+import { getIntegrationConfig, configValue } from './integrations'
 import tls from 'node:tls'
 
 interface MailInput {
@@ -13,11 +14,12 @@ interface MailInput {
  * SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, SMTP_FROM.
  */
 export async function sendSmtpMail(input: MailInput): Promise<void> {
-  const host = process.env.SMTP_HOST
+  const config = await getIntegrationConfig()
+  const host = configValue(config, 'integration.smtp.host', 'SMTP_HOST')
   if (!host) throw new Error('SMTP_HOST is not configured')
-  const port = Number(process.env.SMTP_PORT || 587)
-  const secure = process.env.SMTP_SECURE === 'true'
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER
+  const port = Number(configValue(config, 'integration.smtp.port', 'SMTP_PORT') || 587)
+  const secure = configValue(config, 'integration.smtp.secure', 'SMTP_SECURE') === 'true'
+  const from = configValue(config, 'integration.smtp.from', 'SMTP_FROM') || configValue(config, 'integration.smtp.user', 'SMTP_USER')
   if (!from) throw new Error('SMTP_FROM is not configured')
 
   await new Promise<void>((resolve, reject) => {
@@ -26,8 +28,8 @@ export async function sendSmtpMail(input: MailInput): Promise<void> {
       : net.connect({ host, port })
     let buffer = ''
     let step = 0
-    const user = process.env.SMTP_USER || ''
-    const pass = process.env.SMTP_PASSWORD || ''
+    const user = configValue(config, 'integration.smtp.user', 'SMTP_USER')
+    const pass = configValue(config, 'integration.smtp.password', 'SMTP_PASSWORD')
     const to = input.to
 
     function send(command: string): void {

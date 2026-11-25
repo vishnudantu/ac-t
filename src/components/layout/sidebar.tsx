@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { LayoutDashboard, Calendar, FileText, Users, Ticket, Package, Truck, Shield, Settings, BarChart3, ClipboardList, FolderOpen, Bell, UserCog, Database, ChevronLeft, ChevronRight, Building2, GitBranch, Scale } from "lucide-react"
+import { LayoutDashboard, Calendar, FileText, Users, Ticket, Package, Truck, Shield, Settings, BarChart3, ClipboardList, FolderOpen, Bell, UserCog, Database, ChevronLeft, ChevronRight, Building2, GitBranch, Scale, Plug } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSession } from "@/hooks/use-session"
 import { LogoutButton } from "./logout-button"
@@ -32,6 +32,7 @@ const navigation = [
   { title: "Notifications", href: "/notifications", icon: Bell, permission: "notifications:read" },
   { title: "User Administration", href: "/admin/users", icon: UserCog, permission: "users:read" },
   { title: "Roles & Permissions", href: "/admin/roles", icon: Shield, permission: "roles:read" },
+  { title: "Integrations", href: "/admin/integrations", icon: Plug, permission: "settings:read" },
   { title: "System Settings", href: "/admin/settings", icon: Settings, permission: "settings:read" },
   { title: "Import / Export", href: "/admin/import-export", icon: FolderOpen, permission: "requests:bulk_import" },
 ]

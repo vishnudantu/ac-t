@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
+import { getIntegrationConfig, configValue } from '@/lib/integrations'
 
 /**
  * District by Zomato partner webhook scaffold. Provider-agnostic so the same
@@ -24,12 +25,13 @@ const payloadSchema = z.object({
   items: z.array(saleItemSchema).min(1).max(500),
 }).strict()
 
-function secretConfigured(): string | null {
-  return process.env.DISTRICT_WEBHOOK_SECRET || null
+async function secretConfigured(): Promise<string | null> {
+  const config = await getIntegrationConfig()
+  return configValue(config, 'integration.district.webhook_secret', 'DISTRICT_WEBHOOK_SECRET') || null
 }
 
-function verifySignature(request: NextRequest, rawBody: string): boolean {
-  const secret = secretConfigured()
+async function verifySignature(request: NextRequest, rawBody: string): Promise<boolean> {
+  const secret = await secretConfigured()
   if (!secret) return false
   const bearer = request.headers.get('authorization')
   if (bearer === `Bearer ${secret}`) return true
@@ -43,10 +45,10 @@ function verifySignature(request: NextRequest, rawBody: string): boolean {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const rawBody = await request.text()
-  if (!secretConfigured()) {
+  if (!(await secretConfigured())) {
     return NextResponse.json({ error: 'District webhook is not configured' }, { status: 503 })
   }
-  if (!verifySignature(request, rawBody)) {
+  if (!(await verifySignature(request, rawBody))) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
   let payload: z.infer<typeof payloadSchema>
@@ -56,7 +58,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid webhook payload' }, { status: 400 })
   }
 
-  const live = process.env.DISTRICT_LIVE === 'true'
+  const config = await getIntegrationConfig()
+  const live = configValue(config, 'integration.district.live', 'DISTRICT_LIVE') === 'true'
   const results: Array<{ ticketCategoryId: string; applied: boolean; remaining: number | null; reason?: string }> = []
 
   for (const item of payload.items) {
