@@ -216,7 +216,8 @@ export const quotaCreateSchema = z.object({
   description: optionalText,
   ownerId: optionalId,
   parentQuotaId: optionalId,
-  // totalAllocation, consumedQuantity, isActive are server-owned — excluded
+  // totalAllocation, consumedQuantity are server-owned — excluded
+  isActive: z.boolean().default(true),
   allocations: z.array(quotaAllocationSchema).optional(),
 }).strict().refine(
   (data) => {

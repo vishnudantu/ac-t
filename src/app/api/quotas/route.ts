@@ -55,6 +55,7 @@ export const POST = withApiHandler(async (request: NextRequest, session: Session
         matchId: data.matchId, name: data.name, displayName: data.displayName,
         description: data.description, ownerId: data.ownerId, parentQuotaId: data.parentQuotaId,
         totalAllocation,
+        isActive: data.isActive,
         quotaAllocations: { create: data.allocations || [] },
       },
       include: { match: true, owner: true, quotaAllocations: { include: { ticketCategory: true } } },

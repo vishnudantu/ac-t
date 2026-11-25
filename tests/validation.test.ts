@@ -177,7 +177,7 @@ describe('API boundary validation', () => {
     ] },
     { totalAllocation: 50 },
     { consumedQuantity: 1 },
-    { isActive: false },
+    { status: 'INACTIVE' },
   ])('rejects invalid or server-owned quota input: %p', (field) => {
     expect(quotaCreateSchema.safeParse({
       matchId: 'match-1', name: 'MEDIA', displayName: 'Media allocation', ...field,

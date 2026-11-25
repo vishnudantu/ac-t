@@ -38,9 +38,9 @@ const fields: { section: string; icon: React.ReactNode; description: string; fie
     ],
   },
   {
-    section: "Pricing defaults", icon: <Plug className="h-5 w-5" />, description: "Default face value pre-filled for complimentary tickets. This is the GST set-off amount and is always editable — never hardcoded.",
+    section: "Pricing defaults", icon: <Plug className="h-5 w-5" />, description: "Nominal price ACA records for complimentary tickets to limit the GST it absorbs. GST at 18% is calculated on this nominal price, not the actual face value. Editable — never hardcoded.",
     fields: [
-      { key: "pricing.complimentary_setoff_per_ticket", label: "Complimentary set-off per ticket (₹)", placeholder: "499" },
+      { key: "pricing.complimentary_setoff_per_ticket", label: "Nominal price per complimentary ticket (₹)", placeholder: "499" },
     ],
   },
   {
