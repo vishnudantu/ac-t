@@ -10,8 +10,17 @@ const updateSchema = z.object({
   standName: z.string().trim().min(1).max(250).optional(),
   blockName: z.string().trim().max(100).nullish(),
   gateName: z.string().trim().max(100).nullish(),
+  rowStart: z.string().trim().max(50).nullish(),
+  rowEnd: z.string().trim().max(50).nullish(),
+  seatStart: z.number().int().positive().nullish(),
+  seatEnd: z.number().int().positive().nullish(),
+  ticketFormat: z.enum(['PHYSICAL', 'DIGITAL', 'BOTH']).optional(),
+  faceValue: z.string().regex(/^\d+(\.\d{1,2})?$/, 'faceValue must be a positive decimal').nullish(),
   notes: z.string().trim().max(2000).nullish(),
 }).strict().refine((value) => Object.keys(value).length > 0, 'At least one change is required')
+  .refine((value) => value.seatStart === undefined || value.seatStart === null || value.seatEnd === undefined || value.seatEnd === null || value.seatEnd >= value.seatStart, {
+    message: 'Seat end must be greater than or equal to seat start', path: ['seatEnd'],
+  })
 
 export const PATCH = withApiHandler<Context>(async (request, session, context) => {
   if (!context) return NextResponse.json({ error: 'Inventory ID required' }, { status: 400 })

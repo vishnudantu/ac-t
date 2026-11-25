@@ -28,7 +28,7 @@ export default function InventoryPage() {
   const [page, setPage] = useState(1)
   const { user } = useSession()
   const [editing, setEditing] = useState<(typeof inventory)[number] | null>(null)
-  const [editTotal, setEditTotal] = useState("")
+  const [editForm, setEditForm] = useState({ totalQuantity: "", standName: "", blockName: "", gateName: "", rowStart: "", rowEnd: "", seatStart: "", seatEnd: "", ticketFormat: "PHYSICAL", faceValue: "", notes: "" })
   const [editError, setEditError] = useState("")
   const [editSaving, setEditSaving] = useState(false)
   const [deleting, setDeleting] = useState<(typeof inventory)[number] | null>(null)
@@ -192,20 +192,46 @@ export default function InventoryPage() {
     } catch (cause: unknown) { setDeleteError(cause instanceof Error ? cause.message : "Unable to delete inventory") } finally { setDeleteSaving(false) }
   }
 
+  function openEdit(item: (typeof inventory)[number]) {
+    setEditing(item)
+    setEditForm({
+      totalQuantity: String(item.totalQuantity),
+      standName: item.standName, blockName: item.blockName || "", gateName: item.gateName || "",
+      rowStart: "", rowEnd: "", seatStart: "", seatEnd: "",
+      ticketFormat: item.ticketFormat, faceValue: item.faceValue === null ? "" : String(item.faceValue), notes: "",
+    })
+    setEditError("")
+  }
+
   async function saveInventory(event: React.FormEvent) {
     event.preventDefault()
     if (!editing) return
-    const totalQuantity = Number(editTotal)
+    const totalQuantity = Number(editForm.totalQuantity)
     if (!Number.isInteger(totalQuantity) || totalQuantity < 0) { setEditError("Enter a valid total quantity"); return }
     setEditSaving(true)
     setEditError("")
     try {
-      const response = await fetch(`/api/inventory/${encodeURIComponent(editing.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ totalQuantity }) })
-      const body = await response.json() as { error?: string }
-      if (!response.ok) throw new Error(body.error || "Unable to adjust inventory")
+      const response = await fetch(`/api/inventory/${encodeURIComponent(editing.id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          totalQuantity,
+          standName: editForm.standName,
+          blockName: editForm.blockName || null,
+          gateName: editForm.gateName || null,
+          rowStart: editForm.rowStart || null,
+          rowEnd: editForm.rowEnd || null,
+          seatStart: editForm.seatStart === "" ? null : Number(editForm.seatStart),
+          seatEnd: editForm.seatEnd === "" ? null : Number(editForm.seatEnd),
+          ticketFormat: editForm.ticketFormat,
+          faceValue: editForm.faceValue || null,
+          notes: editForm.notes || null,
+        }),
+      })
+      const body = await response.json() as { error?: string; details?: { message: string }[] }
+      if (!response.ok) throw new Error(body.details?.[0]?.message || body.error || "Unable to update inventory")
       setEditing(null)
       retry()
-    } catch (cause: unknown) { setEditError(cause instanceof Error ? cause.message : "Unable to adjust inventory") } finally { setEditSaving(false) }
+    } catch (cause: unknown) { setEditError(cause instanceof Error ? cause.message : "Unable to update inventory") } finally { setEditSaving(false) }
   }
   const { data, loading, error, retry } = useOperationData(
     (signal) => getInventory(signal, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, categoryId }),
@@ -343,7 +369,7 @@ export default function InventoryPage() {
                         <TableCell className="text-right tabular-nums">{formatNumber(item.reservedQuantity)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatNumber(item.issuedQuantity)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{formatNumber(item.returnedQuantity)} / {formatNumber(item.voidQuantity)}</TableCell>
-                        {canAdjust && <TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Edit inventory ${item.standName}`} onClick={() => { setEditing(item); setEditTotal(String(item.totalQuantity)); setEditError("") }}><Pencil className="h-4 w-4" /></Button>{canDelete && <Button variant="ghost" size="icon" aria-label={`Delete inventory ${item.standName}`} onClick={() => { setDeleteError(""); setDeleting(item) }}><Trash2 className="h-4 w-4 text-destructive" /></Button>}</div></TableCell>}
+                        {canAdjust && <TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Edit inventory ${item.standName}`} onClick={() => { openEdit(item) }}><Pencil className="h-4 w-4" /></Button>{canDelete && <Button variant="ghost" size="icon" aria-label={`Delete inventory ${item.standName}`} onClick={() => { setDeleteError(""); setDeleting(item) }}><Trash2 className="h-4 w-4 text-destructive" /></Button>}</div></TableCell>}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -358,11 +384,23 @@ export default function InventoryPage() {
       </div>
       <Dialog open={Boolean(editing)} onOpenChange={(open) => { if (!open) setEditing(null) }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Adjust inventory</DialogTitle><DialogDescription>{editing?.ticketCategory.displayName} · {editing?.standName}. Total stock cannot fall below allocated, issued, or void tickets.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Edit inventory pool</DialogTitle><DialogDescription>{editing?.ticketCategory.displayName} · {editing?.standName}. Total stock cannot fall below allocated, issued, or void tickets.</DialogDescription></DialogHeader>
           <form onSubmit={saveInventory} className="space-y-4">
-            <div className="space-y-2"><Label htmlFor="inventory-total">Total quantity</Label><Input id="inventory-total" type="number" min={0} required value={editTotal} onChange={(event) => setEditTotal(event.target.value)} /></div>
-            {editError && <p role="alert" className="text-sm text-destructive">{editError}</p>}
-            <DialogFooter><Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" disabled={editSaving}>{editSaving ? "Saving…" : "Save quantity"}</Button></DialogFooter>
+            {editError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{editError}</p>}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2"><Label htmlFor="edit-stand">Stand name</Label><Input id="edit-stand" required maxLength={250} value={editForm.standName} onChange={(event) => setEditForm({ ...editForm, standName: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="edit-block">Block</Label><Input id="edit-block" maxLength={100} value={editForm.blockName} onChange={(event) => setEditForm({ ...editForm, blockName: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="edit-gate">Gate</Label><Input id="edit-gate" maxLength={100} value={editForm.gateName} onChange={(event) => setEditForm({ ...editForm, gateName: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="edit-row-start">Row start</Label><Input id="edit-row-start" maxLength={50} value={editForm.rowStart} onChange={(event) => setEditForm({ ...editForm, rowStart: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="edit-row-end">Row end</Label><Input id="edit-row-end" maxLength={50} value={editForm.rowEnd} onChange={(event) => setEditForm({ ...editForm, rowEnd: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="edit-seat-start">Seat start</Label><Input id="edit-seat-start" type="number" min={1} value={editForm.seatStart} onChange={(event) => setEditForm({ ...editForm, seatStart: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="edit-seat-end">Seat end</Label><Input id="edit-seat-end" type="number" min={1} value={editForm.seatEnd} onChange={(event) => setEditForm({ ...editForm, seatEnd: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="edit-format">Ticket format</Label><select id="edit-format" className={selectClassName} value={editForm.ticketFormat} onChange={(event) => setEditForm({ ...editForm, ticketFormat: event.target.value })} disabled={editSaving}><option value="PHYSICAL">Physical</option><option value="DIGITAL">Digital</option><option value="BOTH">Both</option></select></div>
+              <div className="space-y-2"><Label htmlFor="edit-value">Face value (₹)</Label><Input id="edit-value" inputMode="decimal" value={editForm.faceValue} onChange={(event) => setEditForm({ ...editForm, faceValue: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="edit-total">Total quantity</Label><Input id="edit-total" type="number" min={0} required value={editForm.totalQuantity} onChange={(event) => setEditForm({ ...editForm, totalQuantity: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2 sm:col-span-2"><Label htmlFor="edit-notes">Notes</Label><Input id="edit-notes" maxLength={2000} value={editForm.notes} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} disabled={editSaving} /></div>
+            </div>
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={editSaving}>Cancel</Button><Button type="submit" disabled={editSaving}>{editSaving ? "Saving…" : "Save changes"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
