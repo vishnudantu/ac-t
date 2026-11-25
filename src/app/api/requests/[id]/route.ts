@@ -56,8 +56,11 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
   const updated = await prisma.$transaction(async (tx) => {
     const current = await tx.request.findUnique({ where: { id }, select: { id: true, matchId: true, status: true, assignedToId: true, version: true } })
     if (!current) return { status: 404 as const }
-    const editable = ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'PARTIALLY_APPROVED'].includes(current.status)
+    const editable = ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PARTIALLY_APPROVED'].includes(current.status)
     if (!editable) return { status: 409 as const, message: `A ${current.status.toLowerCase().replace('_', ' ')} request cannot be edited` }
+    // Modifying an already-approved request sends it back through reapproval:
+    // reset approved totals and reopen the first approval step.
+    const requiresReapproval = current.status === 'APPROVED' || current.status === 'PARTIALLY_APPROVED'
     if (current.status !== 'DRAFT') {
       const activeAllocations = await tx.allocation.count({ where: { requestId: id, status: { notIn: ['RELEASED', 'CANCELLED'] } } })
       if (activeAllocations > 0) return { status: 409 as const, message: 'Requests with active allocations cannot be edited' }
@@ -93,8 +96,22 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
       internalNotes: input.internalNotes,
       assignedToId: input.assignedToId,
       ...(totalRequested === undefined ? {} : { totalRequested }),
+      ...(requiresReapproval ? {
+        status: 'UNDER_REVIEW', fulfilmentStatus: 'PENDING',
+        totalApproved: 0, approvedAt: null, rejectedAt: null,
+      } : {}),
       version: { increment: 1 },
     }, include: { items: { include: { ticketCategory: true } }, requester: true, match: true } })
+    if (requiresReapproval) {
+      // Reopen the first approval step and reset the rest so the modified
+      // request passes through the approval chain again.
+      const firstStep = await tx.approvalStep.findFirst({ where: { requestId: id }, orderBy: { stepOrder: 'asc' }, select: { id: true } })
+      if (firstStep) {
+        await tx.approvalStep.updateMany({ where: { requestId: id }, data: { status: 'CANCELLED', completedAt: new Date() } })
+        await tx.approvalStep.update({ where: { id: firstStep.id }, data: { status: 'IN_PROGRESS', startedAt: new Date(), completedAt: null } })
+        await tx.requestItem.updateMany({ where: { requestId: id }, data: { approvedQuantity: 0 } })
+      }
+    }
     await tx.auditEvent.create({ data: {
       userId: session.userId, matchId: current.matchId, entityType: 'REQUEST', entityId: id, action: 'UPDATE',
       oldValues: JSON.stringify({ status: current.status, assignedToId: current.assignedToId }),

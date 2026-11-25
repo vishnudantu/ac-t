@@ -27,11 +27,11 @@ const sources = ["IN_PERSON", "EMAIL", "WHATSAPP", "LETTER", "PHONE", "ONLINE_FO
 const priorities = ["LOW", "NORMAL", "HIGH", "PROTOCOL"] as const
 const requesterCategories = ["VIP", "OFFICIAL", "BCCI", "GOVERNMENT", "SPONSOR", "MEDIA", "MEMBER", "STAFF", "GENERAL"]
 const selectClassName = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-const requestSchema = z.object({ matchId: z.string().min(1, "Select a match"), source: z.enum(sources), priority: z.enum(priorities), sourceReference: z.string().trim().max(500), purpose: z.string().trim().max(2000), requiredDeliveryMethod: z.enum(["", "PHYSICAL", "DIGITAL", "BOTH"]), specialInstructions: z.string().trim().max(2000) })
+const requestSchema = z.object({ matchId: z.string().min(1, "Select a match"), source: z.enum(sources), priority: z.enum(priorities), sourceReference: z.string().trim().max(500), purpose: z.string().trim().max(2000), requiredDeliveryMethod: z.enum(["", "PHYSICAL", "DIGITAL", "BOTH"]), specialInstructions: z.string().trim().max(2000), ticketType: z.enum(["COMPLIMENTARY", "PURCHASE"]) })
 type RequestForm = z.infer<typeof requestSchema>
 const requesterSchema = z.object({ fullName: z.string().trim().min(2, "Enter the requester’s full name"), mobileNumber: z.string().trim().regex(/^\+?[0-9][0-9\s-]{7,17}$/, "Enter a valid mobile number"), email: z.string().trim().email("Enter a valid email address").or(z.literal("")), designation: z.string().trim().max(150), organisationId: z.string(), organisationName: z.string().trim(), requesterCategory: z.string().min(1, "Select a requester category"), protocolLevel: z.string().regex(/^([0-9]|10)$/, "Protocol level must be between 0 and 10"), contactPreference: z.enum(["PHONE", "WHATSAPP", "EMAIL"]), specialInstructions: z.string().trim().max(2000) }).superRefine((data, context) => { if (!data.organisationId && data.organisationName.length < 2) context.addIssue({ code: z.ZodIssueCode.custom, path: ["organisationName"], message: "Select an organisation or enter a new organisation name" }) })
 type RequesterForm = z.infer<typeof requesterSchema>
-const initialRequest: RequestForm = { matchId: "", source: "IN_PERSON", priority: "NORMAL", sourceReference: "", purpose: "", requiredDeliveryMethod: "", specialInstructions: "" }
+const initialRequest: RequestForm = { matchId: "", source: "IN_PERSON", priority: "NORMAL", sourceReference: "", purpose: "", requiredDeliveryMethod: "", specialInstructions: "", ticketType: "COMPLIMENTARY" }
 const initialRequester: RequesterForm = { fullName: "", mobileNumber: "", email: "", designation: "", organisationId: "", organisationName: "", requesterCategory: "", protocolLevel: "0", contactPreference: "PHONE", specialInstructions: "" }
 
 export default function NewRequestPage() {
@@ -50,6 +50,7 @@ function NewRequestForm() {
   const [requesters, setRequesters] = React.useState<RequesterOption[]>([])
   const [organisations, setOrganisations] = React.useState<OrganisationOption[]>([])
   const [categories, setCategories] = React.useState<CategoryOption[]>([])
+  const [availability, setAvailability] = React.useState<Record<string, { capacity: number; allocated: number; remaining: number }>>({})
   const [lines, setLines] = React.useState<RequestLine[]>([{ key: "line-1", ticketCategoryId: "", requestedQuantity: "1", notes: "" }])
   const nextLine = React.useRef(2)
   const [loading, setLoading] = React.useState(true)
@@ -93,7 +94,15 @@ function NewRequestForm() {
   }, [canWrite, reloadKey, sessionLoading])
 
   React.useEffect(() => {
-    if (!requestForm.matchId) { setCategories([]); return }
+    if (!requestForm.matchId) { setCategories([]); setAvailability({}); return }
+    fetch(`/api/availability?matchId=${encodeURIComponent(requestForm.matchId)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body: { categories?: { id: string; capacity: number; allocated: number; remaining: number }[] }) => {
+        const map: Record<string, { capacity: number; allocated: number; remaining: number }> = {}
+        for (const row of body.categories || []) map[row.id] = { capacity: row.capacity, allocated: row.allocated, remaining: row.remaining }
+        setAvailability(map)
+      })
+      .catch(() => setAvailability({}))
     const controller = new AbortController()
     const loadCategories = async () => {
       setCategoriesLoading(true)
@@ -154,6 +163,7 @@ function NewRequestForm() {
           source: parsedRequest.data.source,
           priority: parsedRequest.data.priority,
           status,
+          preferredType: parsedRequest.data.ticketType,
           ...(parsedRequest.data.sourceReference ? { sourceReference: parsedRequest.data.sourceReference } : {}),
           ...(parsedRequest.data.purpose ? { purpose: parsedRequest.data.purpose } : {}),
           ...(parsedRequest.data.requiredDeliveryMethod ? { requiredDeliveryMethod: parsedRequest.data.requiredDeliveryMethod } : {}),
@@ -181,6 +191,7 @@ function NewRequestForm() {
           <div className="space-y-2 sm:col-span-2"><Label htmlFor="new-request-match">Match *</Label><select id="new-request-match" className={selectClassName} required value={requestForm.matchId} onChange={(event) => updateRequest("matchId", event.target.value)}><option value="">Select a match</option>{matches.map((match) => <option key={match.id} value={match.id}>{match.title} — {formatDate(match.matchDate)} ({match.venue.name})</option>)}</select>{matches.length === 0 && <p className="text-sm text-muted-foreground">No matches are available. A match must be configured before requesting tickets.</p>}</div>
           <Field id="new-request-source" label="Request source" required><select id="new-request-source" className={selectClassName} value={requestForm.source} onChange={(event) => updateRequest("source", event.target.value as RequestForm["source"])}>{sources.map((source) => <option key={source} value={source}>{formatStatus(source)}</option>)}</select></Field>
           <Field id="new-request-priority" label="Priority" required><select id="new-request-priority" className={selectClassName} value={requestForm.priority} onChange={(event) => updateRequest("priority", event.target.value as RequestForm["priority"])}>{priorities.map((priority) => <option key={priority} value={priority}>{formatStatus(priority)}</option>)}</select></Field>
+          <Field id="new-request-ticket-type" label="Ticket type" required><select id="new-request-ticket-type" className={selectClassName} value={requestForm.ticketType} onChange={(event) => updateRequest("ticketType", event.target.value as RequestForm["ticketType"])}><option value="COMPLIMENTARY">Complimentary</option><option value="PURCHASE">Purchase</option></select></Field>
           <Field id="new-request-reference" label="Source reference"><Input id="new-request-reference" value={requestForm.sourceReference} onChange={(event) => updateRequest("sourceReference", event.target.value)} maxLength={500} placeholder="Letter, email or reference number" /></Field>
           <Field id="new-request-delivery" label="Required delivery method"><select id="new-request-delivery" className={selectClassName} value={requestForm.requiredDeliveryMethod} onChange={(event) => updateRequest("requiredDeliveryMethod", event.target.value as RequestForm["requiredDeliveryMethod"])}><option value="">No preference</option><option value="PHYSICAL">Physical</option><option value="DIGITAL">Digital</option><option value="BOTH">Both</option></select></Field>
         </CardContent></Card>
@@ -201,7 +212,7 @@ function NewRequestForm() {
         <Card><CardHeader><CardTitle>Requested tickets</CardTitle><CardDescription>Add one line per category. Each line needs a positive whole-number quantity.</CardDescription></CardHeader><CardContent className="space-y-4">
           {categoryError && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{categoryError}</AlertDescription></Alert>}
           {!requestForm.matchId ? <p className="text-sm text-muted-foreground">Select a match to see its ticket categories.</p> : categoriesLoading ? <Loading label="Loading ticket categories" /> : !categoryError && categories.length === 0 ? <p className="text-sm text-muted-foreground">This match has no active ticket categories. Configure categories before creating a request.</p> : lines.map((line, index) => <div key={line.key} className="grid items-end gap-3 rounded-lg border p-4 md:grid-cols-[minmax(180px,1fr)_130px_minmax(160px,1fr)_40px]">
-            <Field id={`category-${line.key}`} label={`Category ${index + 1}`} required><select id={`category-${line.key}`} className={selectClassName} value={line.ticketCategoryId} onChange={(event) => updateLine(line.key, { ticketCategoryId: event.target.value })} required><option value="">Select category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.displayName}</option>)}</select></Field>
+            <Field id={`category-${line.key}`} label={`Category ${index + 1}`} required><select id={`category-${line.key}`} className={selectClassName} value={line.ticketCategoryId} onChange={(event) => updateLine(line.key, { ticketCategoryId: event.target.value })} required><option value="">Select category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.displayName}{availability[category.id] ? ` (${availability[category.id].remaining} available)` : ""}</option>)}</select>{line.ticketCategoryId && availability[line.ticketCategoryId] && <p className={`text-xs ${availability[line.ticketCategoryId].remaining < Number(line.requestedQuantity || 0) ? "text-destructive" : "text-muted-foreground"}`}>{availability[line.ticketCategoryId].remaining} of {availability[line.ticketCategoryId].capacity} available · {availability[line.ticketCategoryId].allocated} already allocated{availability[line.ticketCategoryId].remaining < Number(line.requestedQuantity || 0) ? " — insufficient availability" : ""}</p>}</Field>
             <Field id={`quantity-${line.key}`} label="Quantity" required><Input id={`quantity-${line.key}`} type="number" min={1} step={1} required value={line.requestedQuantity} onChange={(event) => updateLine(line.key, { requestedQuantity: event.target.value })} /></Field>
             <Field id={`notes-${line.key}`} label="Line notes"><Input id={`notes-${line.key}`} value={line.notes} onChange={(event) => updateLine(line.key, { notes: event.target.value })} maxLength={2000} /></Field>
             <Button type="button" variant="ghost" size="icon" disabled={lines.length === 1 || Boolean(savingStatus)} onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} aria-label={`Remove category ${index + 1}`}><Trash2 className="h-4 w-4" /></Button>

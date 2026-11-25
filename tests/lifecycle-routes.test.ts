@@ -375,7 +375,7 @@ describe('request creation route', () => {
       ] }), create: jest.fn().mockResolvedValue({ id: 'workflow-new', steps: [
         { id: 'definition-new', stepOrder: 1, name: 'Approval review', approverUserId: null, approverRoleId: 'role-approver', timeoutHours: 48 },
       ] }) },
-      request: { create: jest.fn().mockResolvedValue({ id: 'request-1', requestNumber: 'REQ-1', totalRequested: 2, items: [] }) },
+      request: { create: jest.fn().mockResolvedValue({ id: 'request-1', requestNumber: 'REQ-1', totalRequested: 2, items: [] }), findMany: jest.fn().mockResolvedValue([]) },
       approvalStep: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
       auditEvent: { create: jest.fn().mockResolvedValue({}) },
     }

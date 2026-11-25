@@ -33,9 +33,18 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
   const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [availability, setAvailability] = useState<Record<string, { remaining: number; capacity: number }>>({})
 
   useEffect(() => {
     if (!step || !open) return
+    fetch(`/api/availability?matchId=${encodeURIComponent(step.request.match.id)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body: { categories?: { id: string; remaining: number; capacity: number }[] }) => {
+        const map: Record<string, { remaining: number; capacity: number }> = {}
+        for (const row of body.categories || []) map[row.id] = { remaining: row.remaining, capacity: row.capacity }
+        setAvailability(map)
+      })
+      .catch(() => setAvailability({}))
     setQuantities(Object.fromEntries(step.request.items.map((item) => [
       item.id,
       action === "APPROVE" ? item.requestedQuantity : item.approvedQuantity,
@@ -54,6 +63,16 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
     if (!step) return
     if (!remarks.trim()) return setError("Remarks are required for this decision.")
     if (quantityError) return setError(quantityError)
+    if (isApproval) {
+      const over = step.request.items.find((item) => {
+        const available = item.ticketCategory ? availability[item.ticketCategory.id]?.remaining : undefined
+        return available !== undefined && (quantities[item.id] ?? item.approvedQuantity) > available
+      })
+      if (over) {
+        const available = over.ticketCategory ? availability[over.ticketCategory.id]?.remaining ?? 0 : 0
+        return setError(`Insufficient ticket availability for ${over.ticketCategory?.displayName ?? "this category"}. Maximum available: ${available}.`)
+      }
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -89,6 +108,10 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
                   <div>
                     <Label htmlFor={`approved-${item.id}`}>{item.ticketCategory?.displayName ?? `Request item ${index + 1}`}</Label>
                     <p className="mt-1 text-xs text-muted-foreground">Requested {item.requestedQuantity} · Previously approved {item.approvedQuantity}</p>
+                    {item.ticketCategory && availability[item.ticketCategory.id] && <p className={`mt-1 text-xs ${(quantities[item.id] ?? item.approvedQuantity) > availability[item.ticketCategory.id].remaining ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                      {availability[item.ticketCategory.id].remaining} of {availability[item.ticketCategory.id].capacity} available
+                      {(quantities[item.id] ?? item.approvedQuantity) > availability[item.ticketCategory.id].remaining ? " — insufficient ticket availability" : ""}
+                    </p>}
                   </div>
                   <Input
                     id={`approved-${item.id}`}

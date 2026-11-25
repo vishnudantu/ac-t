@@ -4,14 +4,14 @@ import type { SessionPayload } from '../src/lib/auth-core'
 const prismaMock = {
   match: { findUnique: jest.fn() },
   requester: { findUnique: jest.fn() },
-  request: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn(), create: jest.fn() },
-  requestItem: { deleteMany: jest.fn(), createMany: jest.fn() },
+  request: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn(), create: jest.fn(), findMany: jest.fn() },
+  requestItem: { deleteMany: jest.fn(), createMany: jest.fn(), updateMany: jest.fn() },
   allocation: { count: jest.fn() },
   ticketCategory: { findMany: jest.fn() },
   user: { findUnique: jest.fn() },
   auditEvent: { create: jest.fn(), deleteMany: jest.fn() },
   approvalWorkflow: { findFirst: jest.fn(), create: jest.fn() },
-  approvalStep: { createMany: jest.fn() },
+  approvalStep: { createMany: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
   role: { findFirst: jest.fn() },
   $transaction: jest.fn(),
 }
@@ -59,6 +59,7 @@ beforeEach(() => {
   prismaMock.requester.findUnique.mockResolvedValue({ id: 'requester-1', isActive: true })
   prismaMock.ticketCategory.findMany.mockResolvedValue([{ id: 'cat-1', matchId: 'match-1', isActive: true }])
   prismaMock.request.create.mockResolvedValue({ id: 'request-1', requestNumber: 'REQ-2026-0099', totalRequested: 2 })
+  prismaMock.request.findMany.mockResolvedValue([])
   prismaMock.approvalStep.createMany.mockResolvedValue({ count: 1 })
   prismaMock.approvalWorkflow.findFirst.mockResolvedValue(null)
   prismaMock.approvalWorkflow.create.mockResolvedValue({
@@ -105,8 +106,17 @@ describe('request editing and deletion', () => {
     expect(prismaMock.request.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ totalRequested: 5 }) }))
   })
 
-  it('blocks editing approved or closed requests', async () => {
+  it('requires reapproval after editing an approved request', async () => {
     prismaMock.request.findUnique.mockResolvedValue({ id: 'request-1', matchId: 'match-1', status: 'APPROVED', assignedToId: null, version: 1 })
+    prismaMock.request.update.mockResolvedValue({ id: 'request-1', status: 'UNDER_REVIEW', totalRequested: 5 })
+    prismaMock.approvalStep.findFirst.mockResolvedValue({ id: 'step-1' })
+    const response = await patchRequest(request('/api/requests/request-1', { priority: 'HIGH' }), context('request-1'))
+    expect(response.status).toBe(200)
+    expect(prismaMock.request.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'UNDER_REVIEW', totalApproved: 0 }) }))
+  })
+
+  it('blocks editing closed requests', async () => {
+    prismaMock.request.findUnique.mockResolvedValue({ id: 'request-1', matchId: 'match-1', status: 'CLOSED', assignedToId: null, version: 1 })
     expect((await patchRequest(request('/api/requests/request-1', { priority: 'HIGH' }), context('request-1'))).status).toBe(409)
   })
 

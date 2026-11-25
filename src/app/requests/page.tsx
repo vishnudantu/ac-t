@@ -109,10 +109,30 @@ export default function RequestsPage() {
     return () => controller.abort()
   }, [canRead, offset, reloadKey, search, sessionLoading, statusFilter])
 
+  const [groupByRequester, setGroupByRequester] = React.useState(false)
   const filteredRequests = React.useMemo(
     () => response.requests.filter((request) => priorityFilter === "all" || request.priority === priorityFilter),
     [priorityFilter, response.requests],
   )
+
+  const groupedRequests = React.useMemo(() => {
+    if (!groupByRequester) return []
+    const groups = new Map<string, { requesterId: string; fullName: string; mobileNumber: string; organisation: string | null; requests: typeof filteredRequests; categories: Map<string, number> }>()
+    for (const request of filteredRequests) {
+      const id = request.requester.id
+      const existing = groups.get(id) ?? {
+        requesterId: id, fullName: request.requester.fullName, mobileNumber: request.requester.mobileNumber,
+        organisation: request.requester.organisation?.name || null, requests: [] as typeof filteredRequests, categories: new Map<string, number>(),
+      }
+      existing.requests.push(request)
+      for (const item of request.items) {
+        const label = item.ticketCategory.displayName
+        existing.categories.set(label, (existing.categories.get(label) || 0) + item.requestedQuantity)
+      }
+      groups.set(id, existing)
+    }
+    return Array.from(groups.values())
+  }, [filteredRequests, groupByRequester])
 
   const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -193,7 +213,7 @@ export default function RequestsPage() {
                       {['LOW', 'NORMAL', 'HIGH', 'PROTOCOL'].map((priority) => <option key={priority} value={priority}>{formatStatus(priority)}</option>)}
                     </select>
                   </div>
-                  <Button type="submit" variant="secondary" className="self-end">Search</Button>
+                  <div className="flex items-end gap-2 self-end"><Button type="submit" variant="secondary">Search</Button><Button type="button" variant={groupByRequester ? "default" : "outline"} onClick={() => setGroupByRequester((value) => !value)}>{groupByRequester ? "List view" : "Group by person"}</Button></div>
                 </form>
               </CardContent>
             </Card>
@@ -217,6 +237,11 @@ export default function RequestsPage() {
                     <p className="mt-2 text-muted-foreground">{response.total > 0 ? "No requests on this page match the selected priority." : "Try another search or status filter."}</p>
                     {canWrite && response.total === 0 && <Button className="mt-4" asChild><Link href="/requests/new">Create a request</Link></Button>}
                   </div>
+                ) : !error && groupByRequester ? (
+                  <div className="space-y-3">{groupedRequests.map((group) => <Card key={group.requesterId} className="shadow-none"><CardHeader className="p-4 pb-3"><CardTitle className="text-base">{group.fullName}</CardTitle><p className="text-xs text-muted-foreground">{group.mobileNumber}{group.organisation ? ` · ${group.organisation}` : ""}</p></CardHeader><CardContent className="space-y-2 p-4 pt-0">
+                    <div className="flex flex-wrap gap-2">{Array.from(group.categories.entries()).map(([label, quantity]) => <Badge key={label} variant="secondary">{label}: {quantity}</Badge>)}</div>
+                    <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Match</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Requested / approved</TableHead><TableHead>Created</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader><TableBody>{group.requests.map((request) => <TableRow key={request.id}><TableCell><Link className="font-mono text-sm text-primary hover:underline" href={`/requests/${request.id}`}>{request.requestNumber}</Link></TableCell><TableCell className="text-sm">{request.match.title}</TableCell><TableCell><Badge className={getStatusColor(request.status)}>{formatStatus(request.status)}</Badge></TableCell><TableCell className="text-right tabular-nums">{request.totalRequested} / {request.totalApproved}</TableCell><TableCell className="text-xs">{formatDate(request.createdAt)}</TableCell><TableCell><Button variant="ghost" size="sm" asChild><Link href={`/requests/${request.id}`}>View</Link></Button></TableCell></TableRow>)}</TableBody></Table>
+                  </CardContent></Card>)}</div>
                 ) : !error ? (
                   <div className="overflow-x-auto">
                     <Table>

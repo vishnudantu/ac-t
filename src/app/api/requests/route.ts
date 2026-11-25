@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import { generateRequestNumber } from '@/lib/utils'
 import { prisma } from '@/lib/prisma'
-import { hasPermission, type SessionPayload } from '@/lib/auth'
+import { hasPermission, hasRole, type SessionPayload } from '@/lib/auth'
 import { withApiHandler, ApiError } from '@/lib/api'
 import { requestCreateSchema, requestListQuerySchema } from '@/lib/validation'
 import { apiError } from '@/lib/api-core'
@@ -68,6 +68,21 @@ export const POST = withApiHandler(async (request: NextRequest, session: Session
     if (data.assignedToId) {
       const assignedTo = await tx.user.findUnique({ where: { id: data.assignedToId }, select: { isActive: true } })
       if (!assignedTo?.isActive) throw new ApiError(422, 'Assigned user is not active')
+    }
+    // Duplicate detection: same requester, match and category in an open request.
+    const duplicates = await tx.request.findMany({
+      where: {
+        requesterId: data.requesterId,
+        matchId: data.matchId,
+        status: { in: ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PARTIALLY_APPROVED'] },
+        items: { some: { ticketCategoryId: { in: data.items.map((item) => item.ticketCategoryId) } } },
+      },
+      select: { id: true, requestNumber: true, status: true, items: { select: { ticketCategoryId: true } } },
+      take: 5,
+    })
+    if (duplicates.length > 0 && !hasRole(session.roles, ['SUPER_ADMIN', 'APPROVAL_AUTHORITY', 'MATCH_ADMIN'])) {
+      const list = duplicates.map((duplicate) => duplicate.requestNumber).join(', ')
+      throw new ApiError(409, `A similar request already exists for this requester, match and category: ${list}. Review the existing request before submitting another.`)
     }
     const workflow = data.status === 'SUBMITTED' ? await ensureApprovalWorkflow(tx, data.matchId) : null
     if (data.status === 'SUBMITTED' && !workflow) {
