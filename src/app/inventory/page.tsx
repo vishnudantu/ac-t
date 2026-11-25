@@ -197,8 +197,10 @@ export default function InventoryPage() {
     setEditForm({
       totalQuantity: String(item.totalQuantity),
       standName: item.standName, blockName: item.blockName || "", gateName: item.gateName || "",
-      rowStart: "", rowEnd: "", seatStart: "", seatEnd: "",
-      ticketFormat: item.ticketFormat, faceValue: item.faceValue === null ? "" : String(item.faceValue), notes: "",
+      rowStart: item.rowStart || "", rowEnd: item.rowEnd || "",
+      seatStart: item.seatStart === null || item.seatStart === undefined ? "" : String(item.seatStart),
+      seatEnd: item.seatEnd === null || item.seatEnd === undefined ? "" : String(item.seatEnd),
+      ticketFormat: item.ticketFormat, faceValue: item.faceValue === null ? "" : String(item.faceValue), notes: item.notes || "",
     })
     setEditError("")
   }
@@ -330,6 +332,18 @@ export default function InventoryPage() {
                   onClear={query || categoryId !== "all" ? clearFilters : undefined}
                 />
               ) : (
+                <>
+                <div className="space-y-3 p-3 md:hidden">{filteredInventory.map((item) => <div key={item.id} className="rounded-lg border bg-card p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{item.standName}</p><p className="text-xs text-muted-foreground">{[item.blockName && `Block ${item.blockName}`, item.gateName].filter(Boolean).join(" · ") || "No location detail"}</p></div><Badge variant="secondary">{item.ticketCategory.displayName}</Badge></div>
+                  <p className="mt-1 text-xs text-muted-foreground">{item.match.title}</p>
+                  <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+                    <div><dt className="text-xs text-muted-foreground">Total</dt><dd className="font-bold tabular-nums">{formatNumber(item.totalQuantity)}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">Available</dt><dd className="font-bold tabular-nums text-green-700 dark:text-green-400">{formatNumber(item.availableQuantity)}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">Issued</dt><dd className="font-bold tabular-nums">{formatNumber(item.issuedQuantity)}</dd></div>
+                  </dl>
+                  {canAdjust && <div className="mt-3 flex justify-end gap-1"><Button variant="outline" size="sm" onClick={() => openEdit(item)}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit</Button>{canDelete && <Button variant="ghost" size="sm" onClick={() => { setDeleteError(""); setDeleting(item) }}><Trash2 className="mr-1.5 h-3.5 w-3.5 text-destructive" />Delete</Button>}</div>}
+                </div>)}</div>
+                <div className="hidden md:block">
                 <Table>
                   <TableCaption className="sr-only">Inventory quantities by category and location</TableCaption>
                   <TableHeader>
@@ -374,6 +388,8 @@ export default function InventoryPage() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
+                </>
               )}
             </DataState>
           </CardContent>

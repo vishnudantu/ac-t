@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Database } from "lucide-react"
+import { Database, Download } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Card, CardContent } from "@/components/ui/card"
@@ -12,6 +12,8 @@ import { DataState, EmptyState, TableSkeleton } from "@/components/operations/da
 import { FilterSelect, Pagination, SearchInput } from "@/components/operations/list-controls"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { formatDateTime, formatStatus } from "@/lib/utils"
+import { downloadExport } from "@/components/operations/api"
+import { Button } from "@/components/ui/button"
 
 interface AuditEvent {
   id: string
@@ -39,6 +41,21 @@ export default function AuditPage() {
   const [error, setError] = React.useState("")
   const [attempt, setAttempt] = React.useState(0)
   const canRead = Boolean(user?.permissions.includes("audit:read"))
+  const canExport = Boolean(user?.permissions.includes("audit:export"))
+  const [exporting, setExporting] = React.useState(false)
+  const [exportError, setExportError] = React.useState("")
+
+  async function exportAudit() {
+    setExporting(true)
+    setExportError("")
+    try {
+      await downloadExport({ type: "AUDIT", format: "CSV", filters: { action, ...(search.trim() ? { search: search.trim() } : {}) } })
+    } catch (cause: unknown) {
+      setExportError(cause instanceof Error ? cause.message : "Unable to export audit logs")
+    } finally {
+      setExporting(false)
+    }
+  }
 
   React.useEffect(() => {
     if (sessionLoading || !canRead) { if (!sessionLoading) setLoading(false); return }
@@ -62,7 +79,8 @@ export default function AuditPage() {
   }, [action, search, page, canRead, sessionLoading, attempt])
 
   return <MainLayout><div className="space-y-5">
-    <PageHeader title="Audit logs" description="Recorded changes to requests, approvals, allocations, and administration." onRefresh={() => setAttempt((value) => value + 1)} refreshing={loading} />
+    <PageHeader title="Audit logs" description="Recorded changes to requests, approvals, allocations, and administration." onRefresh={() => setAttempt((value) => value + 1)} refreshing={loading} actions={canExport ? <Button size="sm" variant="outline" onClick={() => void exportAudit()} disabled={exporting}><Download className="mr-2 h-4 w-4" />{exporting ? "Exporting…" : "Export CSV"}</Button> : undefined} />
+    {exportError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{exportError}</p>}
     <Card className="shadow-none"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><SearchInput value={search} onChange={(value) => { setSearch(value); setPage(1) }} label="Search audit events" placeholder="Search by event, entity, or user…" /><FilterSelect value={action} onChange={(value) => { setAction(value); setPage(1) }} label="Action" options={[{ value: "all", label: "All actions" }, ...["CREATE", "SUBMIT", "UPDATE", "DELETE", "APPROVE", "PARTIAL", "REJECT", "RETURN", "CONFIRM", "ISSUE"].map((value) => ({ value, label: formatStatus(value) }))]} /></CardContent></Card>
     {!sessionLoading && !canRead ? <p role="alert" className="text-destructive">Your account does not have permission to view audit logs.</p> : <DataState loading={loading} error={error} onRetry={() => setAttempt((value) => value + 1)} skeleton={<Card><TableSkeleton /></Card>}>
       {events.length === 0 ? <Card><EmptyState icon={<Database className="h-10 w-10" />} title="No audit events found" description="Events will appear when material operations are recorded." /></Card> : <Card className="shadow-none"><Table><TableHeader><TableRow><TableHead>Time</TableHead><TableHead>User</TableHead><TableHead>Action</TableHead><TableHead>Entity</TableHead><TableHead>Match</TableHead></TableRow></TableHeader><TableBody>{events.map((event) => <TableRow key={event.id} className="cursor-pointer" onClick={() => setSelected(event)}><TableCell className="whitespace-nowrap text-xs">{formatDateTime(event.createdAt)}</TableCell><TableCell>{event.user?.fullName || "System"}<div className="text-xs text-muted-foreground">{event.user?.email || ""}</div></TableCell><TableCell><Badge variant="secondary">{formatStatus(event.action)}</Badge></TableCell><TableCell><button type="button" className="text-left text-primary hover:underline" onClick={() => setSelected(event)}>{event.entityType}<span className="block font-mono text-xs text-muted-foreground">{event.entityId}</span></button></TableCell><TableCell className="text-sm">{event.match?.title || "—"}</TableCell></TableRow>)}</TableBody></Table></Card>}

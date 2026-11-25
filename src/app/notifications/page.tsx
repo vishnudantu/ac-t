@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Bell, Mail, MessageSquare, Smartphone } from "lucide-react"
+import { Bell, Mail, MessageSquare, Smartphone, Send } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,6 +11,8 @@ import { PageHeader } from "@/components/operations/page-header"
 import { DataState, EmptyState, TableSkeleton } from "@/components/operations/data-state"
 import { FilterSelect } from "@/components/operations/list-controls"
 import { formatDateTime, formatStatus } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 interface NotificationLog {
   id: string
@@ -32,7 +34,12 @@ export default function NotificationsPage() {
   const [channel, setChannel] = React.useState("")
   const [status, setStatus] = React.useState("")
   const [attempt, setAttempt] = React.useState(0)
+  const [testOpen, setTestOpen] = React.useState(false)
+  const [testChannel, setTestChannel] = React.useState<"EMAIL" | "SMS" | "WHATSAPP">("EMAIL")
+  const [testSaving, setTestSaving] = React.useState(false)
+  const [testResult, setTestResult] = React.useState<{ status: string; errorMessage: string | null } | null>(null)
   const canRead = Boolean(user?.permissions.includes("notifications:read"))
+  const canSend = Boolean(user?.permissions.includes("notifications:send"))
 
   React.useEffect(() => {
     if (sessionLoading || !canRead) { if (!sessionLoading) setLoading(false); return }
@@ -53,12 +60,29 @@ export default function NotificationsPage() {
     return () => controller.abort()
   }, [canRead, sessionLoading, channel, status, attempt])
 
+  async function sendTest() {
+    setTestSaving(true)
+    setTestResult(null)
+    try {
+      const response = await fetch("/api/notifications/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel: testChannel }) })
+      const body = await response.json() as { status?: string; errorMessage?: string | null; error?: string }
+      if (!response.ok) throw new Error(body.error || "Unable to send test")
+      setTestResult({ status: body.status ?? "UNKNOWN", errorMessage: body.errorMessage ?? null })
+      setAttempt((value) => value + 1)
+    } catch (cause: unknown) {
+      setTestResult({ status: "FAILED", errorMessage: cause instanceof Error ? cause.message : "Unable to send test" })
+    } finally {
+      setTestSaving(false)
+    }
+  }
+
   return <MainLayout><div className="space-y-5">
     <PageHeader
       title="Notifications"
       description="Delivery log for email, SMS and WhatsApp. Channels activate once SMTP or Twilio is configured."
       onRefresh={() => setAttempt((value) => value + 1)}
       refreshing={loading}
+      actions={canSend ? <Button size="sm" variant="outline" onClick={() => { setTestResult(null); setTestOpen(true) }}><Send className="mr-2 h-4 w-4" />Send test</Button> : undefined}
     />
     <Card className="shadow-none"><CardContent className="grid gap-3 p-4 sm:grid-cols-2">
       <FilterSelect value={channel} onChange={setChannel} label="Channel" options={[{ value: "", label: "All channels" }, { value: "EMAIL", label: "Email" }, { value: "SMS", label: "SMS" }, { value: "WHATSAPP", label: "WhatsApp" }]} />
@@ -80,5 +104,15 @@ export default function NotificationsPage() {
             </TableRow>)}</TableBody>
           </Table></CardContent></Card>}
       </DataState>}
+    <Dialog open={testOpen} onOpenChange={(open) => { if (!testSaving) setTestOpen(open) }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Send test notification</DialogTitle><DialogDescription>Sends a test message to your own account so you can verify provider delivery.</DialogDescription></DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-2"><label htmlFor="test-channel" className="text-sm font-medium">Channel</label><select id="test-channel" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={testChannel} onChange={(event) => setTestChannel(event.target.value as "EMAIL" | "SMS" | "WHATSAPP")} disabled={testSaving}><option value="EMAIL">Email</option><option value="SMS">SMS</option><option value="WHATSAPP">WhatsApp</option></select></div>
+          {testResult && <p role="status" className={testResult.status === "SENT" ? "text-sm text-green-700" : "text-sm text-destructive"}>Status: {testResult.status}{testResult.errorMessage ? ` — ${testResult.errorMessage}` : ""}</p>}
+        </div>
+        <DialogFooter><Button variant="outline" onClick={() => setTestOpen(false)} disabled={testSaving}>Close</Button><Button onClick={sendTest} disabled={testSaving}>{testSaving ? "Sending…" : "Send test"}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div></MainLayout>
 }

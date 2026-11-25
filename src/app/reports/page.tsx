@@ -3,7 +3,7 @@
 import * as React from "react"
 import { BarChart3, Package, Shield, Ticket, Download, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { downloadReport } from "@/lib/report-export"
+import { downloadExport } from "@/components/operations/api"
 import { useSession } from "@/hooks/use-session"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,6 +28,9 @@ export default function ReportsPage() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState("")
   const canRead = Boolean(user?.permissions.includes("reports:read"))
+  const canExport = Boolean(user?.permissions.includes("reports:export"))
+  const [exporting, setExporting] = React.useState(false)
+  const [exportError, setExportError] = React.useState("")
   const [attempt, setAttempt] = React.useState(0)
 
   React.useEffect(() => {
@@ -46,6 +49,18 @@ export default function ReportsPage() {
     return () => controller.abort()
   }, [matchId, canRead, sessionLoading, attempt])
 
+  async function exportReport(format: "CSV" | "XLSX") {
+    setExporting(true)
+    setExportError("")
+    try {
+      await downloadExport({ type: "REPORTS", format, matchId: matchId || undefined })
+    } catch (cause: unknown) {
+      setExportError(cause instanceof Error ? cause.message : "Unable to export the report")
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const summary = data?.summary
   const exportData = data && summary ? {
     generatedAt: new Date().toLocaleString('en-IN'),
@@ -55,10 +70,11 @@ export default function ReportsPage() {
   } : null
   return <MainLayout><div className="space-y-5">
     <PageHeader title="Reports & analytics" description="Operational totals and category fulfilment from the database." onRefresh={() => setAttempt((value) => value + 1)} refreshing={loading} actions={exportData ? <>
-      <Button size="sm" variant="outline" onClick={() => downloadReport(exportData, "csv")}><Download className="mr-2 h-4 w-4" />CSV</Button>
-      <Button size="sm" variant="outline" onClick={() => downloadReport(exportData, "xlsx")}><Download className="mr-2 h-4 w-4" />Excel</Button>
+      {canExport && <><Button size="sm" variant="outline" disabled={exporting} onClick={() => void exportReport("CSV")}><Download className="mr-2 h-4 w-4" />Export CSV</Button>
+      <Button size="sm" variant="outline" disabled={exporting} onClick={() => void exportReport("XLSX")}><Download className="mr-2 h-4 w-4" />Export Excel</Button></>}
       <Button size="sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print</Button>
     </> : undefined} />
+    {exportError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{exportError}</p>}
     <div className="hidden print:block"><h1 className="text-xl font-bold">ACA TicketOps — operational report</h1><p className="text-sm">Generated {exportData?.generatedAt} · {exportData?.matchTitle}</p></div>
     <div className="max-w-sm"><label htmlFor="report-match" className="mb-2 block text-sm font-medium">Match</label><select id="report-match" className={selectClassName} value={matchId} onChange={(event) => setMatchId(event.target.value)}><option value="">All matches</option>{data?.matches.map((match) => <option key={match.id} value={match.id}>{match.title}</option>)}</select></div>
     {!sessionLoading && !canRead ? <p role="alert" className="text-destructive">Your account does not have permission to view reports.</p> : <DataState loading={loading} error={error} onRetry={() => setAttempt((value) => value + 1)} skeleton={<MetricSkeleton />}>
@@ -72,7 +88,7 @@ export default function ReportsPage() {
         <Card className="shadow-none"><CardHeader><CardTitle className="text-lg">Category fulfilment</CardTitle></CardHeader><CardContent className="p-0">
           {data.categories.length === 0 ? <EmptyState icon={<BarChart3 className="h-10 w-10" />} title="No category data" description="Categories will appear after a match and its inventory are configured." /> : <Table><TableHeader><TableRow><TableHead>Category</TableHead><TableHead className="text-right">Requested</TableHead><TableHead className="text-right">Approved</TableHead><TableHead className="text-right">Allocated</TableHead><TableHead className="text-right">Issued</TableHead><TableHead className="text-right">Available</TableHead></TableRow></TableHeader><TableBody>{data.categories.map((category) => <TableRow key={category.id}><TableCell><Badge variant="secondary">{category.name}</Badge></TableCell><TableCell className="text-right">{formatNumber(category.requested)}</TableCell><TableCell className="text-right">{formatNumber(category.approved)}</TableCell><TableCell className="text-right">{formatNumber(category.allocated)}</TableCell><TableCell className="text-right">{formatNumber(category.issued)}</TableCell><TableCell className="text-right">{formatNumber(category.available)}</TableCell></TableRow>)}</TableBody></Table>}
         </CardContent></Card>
-        <p className="text-xs text-muted-foreground">Counts reflect the selected match. Export and scheduled report delivery are not yet available.</p>
+        <p className="text-xs text-muted-foreground">Counts reflect the selected match. CSV and Excel exports are generated from current database values.</p>
       </>}
     </DataState>}
   </div></MainLayout>

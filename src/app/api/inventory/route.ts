@@ -9,7 +9,17 @@ import { apiError } from '@/lib/api-core'
 export const GET = withApiHandler(async (request: NextRequest, session: SessionPayload) => {
   if (!hasPermission(session.permissions, 'inventory:read')) return apiError('Forbidden', 403)
   const query = inventoryListQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams))
-  const where: Prisma.InventoryPoolWhereInput = { matchId: query.matchId, ticketCategoryId: query.categoryId }
+  const search = query.search
+  const where: Prisma.InventoryPoolWhereInput = {
+    matchId: query.matchId,
+    ticketCategoryId: query.categoryId,
+    ...(search ? { OR: [
+      { standName: { contains: search, mode: 'insensitive' } },
+      { blockName: { contains: search, mode: 'insensitive' } },
+      { gateName: { contains: search, mode: 'insensitive' } },
+      { match: { title: { contains: search, mode: 'insensitive' } } },
+    ] } : {}),
+  }
   const [inventory, total, aggregate] = await prisma.$transaction([
     prisma.inventoryPool.findMany({
       where,

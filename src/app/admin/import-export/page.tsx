@@ -1,527 +1,114 @@
 "use client"
 
 import * as React from "react"
+import { Download, Eye, FileSpreadsheet, FileText, Upload } from "lucide-react"
 import { useSession } from "@/hooks/use-session"
+import { useToast } from "@/hooks/use-toast"
 import { MainLayout } from "@/components/layout/main-layout"
+import { PageHeader } from "@/components/operations/page-header"
+import { DataState, EmptyState, TableSkeleton } from "@/components/operations/data-state"
+import { FilterSelect, Pagination } from "@/components/operations/list-controls"
+import { createImport, downloadExport, getExports, getImportDetail, getImports, type ImportJob, type ImportRow, type ExportJob } from "@/components/operations/api"
+import { useOperationData } from "@/components/operations/use-operation-data"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Upload,
-  Download,
-  FileText,
-  Search,
-  Filter,
-  Eye,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  MoreHorizontal,
-  Package,
-  Users,
-  Shield,
-  Truck,
-} from "lucide-react"
-import { formatDateTime, formatNumber } from "@/lib/utils"
-import Link from "next/link"
 import { Input } from "@/components/ui/input"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { formatDateTime, formatNumber } from "@/lib/utils"
 
-const importJobs = [
-  {
-    id: "IMP-2026-0005",
-    type: "REQUESTS",
-    match: "India vs Australia - 2nd ODI",
-    fileName: "requests_batch_nov.xlsx",
-    fileSize: 45234,
-    status: "COMPLETED",
-    totalRows: 150,
-    validRows: 142,
-    invalidRows: 8,
-    duplicateRows: 0,
-    importedRows: 142,
-    createdBy: "operator1@aca.gov.in",
-    createdAt: "2026-11-19T14:10:00",
-    completedAt: "2026-11-19T14:10:45",
-  },
-  {
-    id: "IMP-2026-0004",
-    type: "INVENTORY",
-    match: "India vs Australia - 2nd ODI",
-    fileName: "manifest_ind_vs_sl.xlsx",
-    fileSize: 95528,
-    status: "COMPLETED",
-    totalRows: 35,
-    validRows: 35,
-    invalidRows: 0,
-    duplicateRows: 0,
-    importedRows: 35,
-    createdBy: "admin@aca.gov.in",
-    createdAt: "2026-11-18T10:00:00",
-    completedAt: "2026-11-18T10:00:12",
-  },
-  {
-    id: "IMP-2026-0003",
-    type: "REQUESTERS",
-    match: null,
-    fileName: "requesters_directory.xlsx",
-    fileSize: 12450,
-    status: "PARTIAL",
-    totalRows: 50,
-    validRows: 45,
-    invalidRows: 3,
-    duplicateRows: 2,
-    importedRows: 45,
-    createdBy: "operator2@aca.gov.in",
-    createdAt: "2026-11-15T11:30:00",
-    completedAt: "2026-11-15T11:30:20",
-  },
-  {
-    id: "IMP-2026-0002",
-    type: "QUOTAS",
-    match: "India vs Australia - 2nd ODI",
-    fileName: "quota_allocations.xlsx",
-    fileSize: 8900,
-    status: "FAILED",
-    totalRows: 9,
-    validRows: 0,
-    invalidRows: 9,
-    duplicateRows: 0,
-    importedRows: 0,
-    errorSummary: "Invalid quota pool references",
-    createdBy: "quota1@aca.gov.in",
-    createdAt: "2026-11-14T09:00:00",
-  },
-  {
-    id: "IMP-2026-0001",
-    type: "DISTRIBUTION",
-    match: "India vs Australia - 2nd ODI",
-    fileName: "distribution_plan.xlsx",
-    fileSize: 15600,
-    status: "COMPLETED",
-    totalRows: 200,
-    validRows: 198,
-    invalidRows: 2,
-    duplicateRows: 0,
-    importedRows: 198,
-    createdBy: "distribution1@aca.gov.in",
-    createdAt: "2026-11-13T16:00:00",
-    completedAt: "2026-11-13T16:00:35",
-  },
-]
+const PAGE_SIZE = 20
+const IMPORT_TYPES = ["REQUESTERS", "INVENTORY", "QUOTAS", "REQUESTS"] as const
+const EXPORT_TYPES = ["REQUESTS", "ALLOCATIONS", "INVENTORY", "QUOTAS", "DISTRIBUTION", "AUDIT", "REPORTS"] as const
+const importPermissions: Record<typeof IMPORT_TYPES[number], string> = { REQUESTERS: "requests:write", INVENTORY: "inventory:import", QUOTAS: "quotas:write", REQUESTS: "requests:bulk_import" }
+const exportPermissions: Record<typeof EXPORT_TYPES[number], string> = { REQUESTS: "requests:export", ALLOCATIONS: "allocations:read", INVENTORY: "inventory:read", QUOTAS: "quotas:read", DISTRIBUTION: "distribution:read", AUDIT: "audit:export", REPORTS: "reports:export" }
+const hasAny = (permissions: string[], keys: string[]): boolean => keys.some((key) => permissions.includes(key))
+const allOptions = (types: readonly string[]): { value: string; label: string }[] => [{ value: "all", label: "All types" }, ...types.map((type) => ({ value: type, label: type }))]
 
-const exportJobs = [
-  {
-    id: "EXP-2026-0008",
-    type: "REQUESTS",
-    match: "India vs Australia - 2nd ODI",
-    format: "EXCEL",
-    status: "COMPLETED",
-    fileName: "all_requests_20261120.xlsx",
-    fileSize: 245600,
-    recordCount: 1247,
-    createdBy: "admin@aca.gov.in",
-    createdAt: "2026-11-20T10:00:00",
-    completedAt: "2026-11-20T10:00:15",
-  },
-  {
-    id: "EXP-2026-0007",
-    type: "ALLOCATIONS",
-    match: "India vs Australia - 2nd ODI",
-    format: "PDF",
-    status: "COMPLETED",
-    fileName: "allocation_manifest_20261120.pdf",
-    fileSize: 1024000,
-    recordCount: 892,
-    createdBy: "emily.davis@aca.gov.in",
-    createdAt: "2026-11-20T09:30:00",
-    completedAt: "2026-11-20T09:30:08",
-  },
-  {
-    id: "EXP-2026-0006",
-    type: "INVENTORY",
-    match: "India vs Australia - 2nd ODI",
-    format: "EXCEL",
-    status: "COMPLETED",
-    fileName: "inventory_report_20261120.xlsx",
-    fileSize: 45600,
-    recordCount: 35,
-    createdBy: "emily.davis@aca.gov.in",
-    createdAt: "2026-11-20T09:00:00",
-    completedAt: "2026-11-20T09:00:03",
-  },
-  {
-    id: "EXP-2026-0005",
-    type: "RECONCILIATION",
-    match: "South Zone vs North Zone - Final",
-    format: "PDF",
-    status: "COMPLETED",
-    fileName: "final_reconciliation_duleep.pdf",
-    fileSize: 2048000,
-    recordCount: 1,
-    createdBy: "admin@aca.gov.in",
-    createdAt: "2026-11-12T14:00:00",
-    completedAt: "2026-11-12T14:00:25",
-  },
-  {
-    id: "EXP-2026-0004",
-    type: "QUOTAS",
-    match: "India vs Australia - 2nd ODI",
-    format: "EXCEL",
-    status: "COMPLETED",
-    fileName: "quota_utilization_20261119.xlsx",
-    fileSize: 34200,
-    recordCount: 9,
-    createdBy: "michael.brown@aca.gov.in",
-    createdAt: "2026-11-19T15:00:00",
-    completedAt: "2026-11-19T15:00:02",
-  },
-]
-
-export default function AdminImportExportPage() {
-  const { user, loading } = useSession()
-  const [activeTab, setActiveTab] = React.useState("imports")
-  const [search, setSearch] = React.useState("")
-
-  if (loading) {
-    return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      </MainLayout>
-    )
-  }
-
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, "default" | "destructive" | "warning" | "success" | "info"> = {
-      COMPLETED: "success",
-      PARTIAL: "warning",
-      FAILED: "destructive",
-      VALIDATING: "default",
-      IMPORTING: "default",
-      QUEUED: "default",
-      PROCESSING: "default",
-    }
-    return <Badge variant={variants[status] || "default"}>{status}</Badge>
-  }
-
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case "REQUESTS": return <FileText className="h-3.5 w-3.5" />
-      case "INVENTORY": return <Package className="h-3.5 w-3.5" />
-      case "REQUESTERS": return <Users className="h-3.5 w-3.5" />
-      case "QUOTAS": return <Shield className="h-3.5 w-3.5" />
-      case "DISTRIBUTION": return <Truck className="h-3.5 w-3.5" />
-      case "ALLOCATIONS": return <Package className="h-3.5 w-3.5" />
-      case "RECONCILIATION": return <FileText className="h-3.5 w-3.5" />
-      default: return <FileText className="h-3.5 w-3.5" />
-    }
-  }
-
-  return (
-    <MainLayout>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Import / Export Center</h1>
-            <p className="text-muted-foreground">Manage bulk data operations</p>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="imports">
-              <Upload className="h-4 w-4 mr-2" />
-              Imports ({importJobs.length})
-            </TabsTrigger>
-            <TabsTrigger value="exports">
-              <Download className="h-4 w-4 mr-2" />
-              Exports ({exportJobs.length})
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="imports" className="space-y-4">
-            {/* Import Actions */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  New Import
-                  <Button variant="outline" size="sm" asChild>
-                    <a href="/api/templates?type=requests" download>
-                      <Download className="h-4 w-4 mr-2" />
-                      Download Templates
-                    </a>
-                  </Button>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-3">
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/requests/new">
-                      <Upload className="h-8 w-8" />
-                      <span>Import Requests</span>
-                      <span className="text-xs text-muted-foreground">Excel/CSV</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/inventory">
-                      <Upload className="h-8 w-8" />
-                      <span>Manage Inventory</span>
-                      <span className="text-xs text-muted-foreground">Create pools</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/requesters">
-                      <Upload className="h-8 w-8" />
-                      <span>Add Requesters</span>
-                      <span className="text-xs text-muted-foreground">Requester directory</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/quotas">
-                      <Upload className="h-8 w-8" />
-                      <span>Manage Quotas</span>
-                      <span className="text-xs text-muted-foreground">Quota pools</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/distribution">
-                      <Upload className="h-8 w-8" />
-                      <span>Distribute Tickets</span>
-                      <span className="text-xs text-muted-foreground">Issue and track</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <a href="/api/templates?type=inventory" download>
-                      <Download className="h-8 w-8" />
-                      <span>Inventory Template</span>
-                      <span className="text-xs text-muted-foreground">Sample CSV</span>
-                    </a>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Import Jobs Table */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Import History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Job ID</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Match</TableHead>
-                        <TableHead>File</TableHead>
-                        <TableHead>Size</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
-                        <TableHead className="text-right">Valid</TableHead>
-                        <TableHead className="text-right">Invalid</TableHead>
-                        <TableHead className="text-right">Imported</TableHead>
-                        <TableHead>Created By</TableHead>
-                        <TableHead>Completed</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {importJobs.map((job) => (
-                        <TableRow key={job.id}>
-                          <TableCell className="font-mono text-sm">{job.id}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              {getTypeIcon(job.type)}
-                              <Badge variant="secondary">{job.type}</Badge>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm">{job.match || "-"}</TableCell>
-                          <TableCell className="font-mono text-sm truncate max-w-[200px]">{job.fileName}</TableCell>
-                          <TableCell className="text-sm">{formatNumber(job.fileSize / 1024)} KB</TableCell>
-                          <TableCell>{getStatusBadge(job.status)}</TableCell>
-                          <TableCell className="text-right">{job.totalRows}</TableCell>
-                          <TableCell className="text-right text-green-600">{job.validRows}</TableCell>
-                          <TableCell className="text-right text-red-600">{job.invalidRows}</TableCell>
-                          <TableCell className="text-right text-blue-600 font-medium">{job.importedRows}</TableCell>
-                          <TableCell className="text-sm">{job.createdBy}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{job.completedAt ? formatDateTime(job.completedAt) : "-"}</TableCell>
-                          <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuLabel>{job.id}</DropdownMenuLabel>
-                                <DropdownMenuItem onClick={() => {}}>
-                                  <Eye className="h-4 w-4 mr-2" />
-                                  View Details
-                                </DropdownMenuItem>
-                                {job.status !== "COMPLETED" && (
-                                  <DropdownMenuItem>View Errors</DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem>Download Error Report</DropdownMenuItem>
-                                {job.status === "PARTIAL" && (
-                                  <DropdownMenuItem>Retry Failed Rows</DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="exports" className="space-y-4">
-            {/* Export Actions */}
-            <Card>
-              <CardHeader>
-                <CardTitle>New Export</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-4">
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/requests">
-                      <Download className="h-8 w-8" />
-                      <span>Export Requests</span>
-                      <span className="text-xs text-muted-foreground">Open request register</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/allocations">
-                      <Download className="h-8 w-8" />
-                      <span>Export Allocations</span>
-                      <span className="text-xs text-muted-foreground">Open allocations</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/inventory">
-                      <Download className="h-8 w-8" />
-                      <span>Export Inventory</span>
-                      <span className="text-xs text-muted-foreground">Open inventory</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/reports">
-                      <Download className="h-8 w-8" />
-                      <span>Export Reports</span>
-                      <span className="text-xs text-muted-foreground">CSV / Excel / Print</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/distribution">
-                      <Download className="h-8 w-8" />
-                      <span>Export Distribution</span>
-                      <span className="text-xs text-muted-foreground">Open distribution</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/audit">
-                      <Download className="h-8 w-8" />
-                      <span>Export Audit Logs</span>
-                      <span className="text-xs text-muted-foreground">Open audit trail</span>
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="h-auto p-6 flex flex-col items-center gap-2" asChild>
-                    <Link href="/reports">
-                      <Download className="h-8 w-8" />
-                      <span>Custom Export</span>
-                      <span className="text-xs text-muted-foreground">Build from reports</span>
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Export Jobs Table */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Export History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Job ID</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Match</TableHead>
-                        <TableHead>Format</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>File</TableHead>
-                        <TableHead>Size</TableHead>
-                        <TableHead className="text-right">Records</TableHead>
-                        <TableHead>Created By</TableHead>
-                        <TableHead>Completed</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {exportJobs.map((job) => (
-                        <TableRow key={job.id}>
-                          <TableCell className="font-mono text-sm">{job.id}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              {getTypeIcon(job.type)}
-                              <Badge variant="secondary">{job.type}</Badge>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm">{job.match || "-"}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{job.format}</Badge>
-                          </TableCell>
-                          <TableCell>{getStatusBadge(job.status)}</TableCell>
-                          <TableCell className="font-mono text-sm truncate max-w-[200px]">{job.fileName}</TableCell>
-                          <TableCell className="text-sm">{formatNumber(job.fileSize / 1024)} KB</TableCell>
-                          <TableCell className="text-right font-medium">{formatNumber(job.recordCount)}</TableCell>
-                          <TableCell className="text-sm">{job.createdBy}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{job.completedAt ? formatDateTime(job.completedAt) : "-"}</TableCell>
-                          <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuLabel>{job.id}</DropdownMenuLabel>
-                                <DropdownMenuItem onClick={() => {}}>
-                                  <Eye className="h-4 w-4 mr-2" />
-                                  View Details
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => {}}>
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Download File
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
-    </MainLayout>
-  )
+function StatusBadge({ status }: { status: string }) {
+  const variants: Record<string, "success" | "destructive" | "warning" | "default"> = { COMPLETED: "success", FAILED: "destructive", PARTIAL: "warning" }
+  return <Badge variant={variants[status] || "default"}>{status}</Badge>
 }
 
+function ImportHistory({ jobs, onDetails }: { jobs: ImportJob[]; onDetails: (id: string) => void }) {
+  return <Table><TableHeader><TableRow><TableHead>Job</TableHead><TableHead>Type</TableHead><TableHead>Match</TableHead><TableHead>File</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Imported / Total</TableHead><TableHead>Created</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader><TableBody>
+    {jobs.map((job) => <TableRow key={job.id}><TableCell className="font-mono text-xs">{job.jobNumber}</TableCell><TableCell><Badge variant="secondary">{job.importType}</Badge></TableCell><TableCell>{job.match?.title || "—"}</TableCell><TableCell><span className="block max-w-56 truncate font-mono text-xs">{job.fileName}</span><span className="text-xs text-muted-foreground">{formatNumber(job.fileSize / 1024)} KB</span></TableCell><TableCell><StatusBadge status={job.status} /></TableCell><TableCell className="text-right">{job.importedRows} / {job.totalRows}<span className="block text-xs text-muted-foreground">{job.invalidRows} invalid · {job.duplicateRows} duplicate</span></TableCell><TableCell><span className="text-xs">{formatDateTime(job.createdAt)}</span><span className="block text-xs text-muted-foreground">{job.creator?.fullName || "System"}</span></TableCell><TableCell><Button variant="ghost" size="icon" aria-label={`View ${job.jobNumber}`} onClick={() => onDetails(job.id)}><Eye className="h-4 w-4" /></Button></TableCell></TableRow>)}
+  </TableBody></Table>
+}
+
+function ExportHistory({ jobs }: { jobs: ExportJob[] }) {
+  return <Table><TableHeader><TableRow><TableHead>Job</TableHead><TableHead>Type</TableHead><TableHead>Match</TableHead><TableHead>Format</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Records</TableHead><TableHead>Created</TableHead></TableRow></TableHeader><TableBody>
+    {jobs.map((job) => <TableRow key={job.id}><TableCell className="font-mono text-xs">{job.jobNumber}</TableCell><TableCell><Badge variant="secondary">{job.exportType}</Badge></TableCell><TableCell>{job.match?.title || "All matches"}</TableCell><TableCell><Badge variant="outline">{job.format}</Badge></TableCell><TableCell><StatusBadge status={job.status} /><span className="block text-xs text-muted-foreground">{job.fileName}</span></TableCell><TableCell className="text-right">{formatNumber(job.recordCount)}</TableCell><TableCell><span className="text-xs">{formatDateTime(job.createdAt)}</span><span className="block text-xs text-muted-foreground">{job.creator?.fullName || "System"}</span></TableCell></TableRow>)}
+  </TableBody></Table>
+}
+
+function ImportRowDetails({ rows }: { rows: ImportRow[] }) {
+  return <Table><TableHeader><TableRow><TableHead>Row</TableHead><TableHead>Data</TableHead><TableHead>Status</TableHead><TableHead>Errors</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={row.id}><TableCell>{row.rowNumber}</TableCell><TableCell><pre className="max-w-80 whitespace-pre-wrap break-all text-xs">{row.rawData}</pre></TableCell><TableCell><StatusBadge status={row.status} /></TableCell><TableCell className="max-w-80 whitespace-pre-wrap text-xs">{row.errors || "—"}</TableCell></TableRow>)}</TableBody></Table>
+}
+
+export default function AdminImportExportPage() {
+  const { user, loading: sessionLoading } = useSession()
+  const { toast } = useToast()
+  const [tab, setTab] = React.useState("imports")
+  const [importPage, setImportPage] = React.useState(1)
+  const [exportPage, setExportPage] = React.useState(1)
+  const [importType, setImportType] = React.useState("all")
+  const [exportType, setExportType] = React.useState("all")
+  const [importOpen, setImportOpen] = React.useState(false)
+  const [exportOpen, setExportOpen] = React.useState(false)
+  const [newImportType, setNewImportType] = React.useState<typeof IMPORT_TYPES[number]>("REQUESTERS")
+  const [file, setFile] = React.useState<File | null>(null)
+  const [newExportType, setNewExportType] = React.useState<typeof EXPORT_TYPES[number]>("REQUESTS")
+  const [format, setFormat] = React.useState<"CSV" | "XLSX">("CSV")
+  const [saving, setSaving] = React.useState(false)
+  const [formError, setFormError] = React.useState("")
+  const [detailId, setDetailId] = React.useState<string | null>(null)
+  const permissions = user?.permissions || []
+  const canList = hasAny(permissions, [...Object.values(importPermissions), ...Object.values(exportPermissions)])
+  const importData = useOperationData(React.useCallback((signal) => getImports(signal, { limit: PAGE_SIZE, offset: (importPage - 1) * PAGE_SIZE, type: importType }), [importPage, importType, canList]))
+  const exportData = useOperationData(React.useCallback((signal) => getExports(signal, { limit: PAGE_SIZE, offset: (exportPage - 1) * PAGE_SIZE, type: exportType }), [exportPage, exportType, canList]))
+  const detail = useOperationData(React.useCallback((signal) => detailId ? getImportDetail(detailId, signal) : Promise.resolve(null), [detailId]))
+  const availableExports = EXPORT_TYPES.filter((type) => permissions.includes(exportPermissions[type]))
+  const canImport = hasAny(permissions, Object.values(importPermissions))
+
+  React.useEffect(() => { if (availableExports.length && !availableExports.includes(newExportType)) setNewExportType(availableExports[0]) }, [availableExports.join(","), newExportType])
+
+  async function submitImport(event: React.FormEvent) {
+    event.preventDefault()
+    if (!file) { setFormError("Select a CSV or XLSX file"); return }
+    setSaving(true); setFormError("")
+    try {
+      await createImport(newImportType, file)
+      setImportOpen(false); setFile(null); importData.retry()
+      toast({ title: "Import finished", description: "Open the job details to review imported rows and validation errors." })
+    } catch (cause: unknown) { setFormError(cause instanceof Error ? cause.message : "Import failed") } finally { setSaving(false) }
+  }
+
+  async function submitExport(event: React.FormEvent) {
+    event.preventDefault()
+    setSaving(true); setFormError("")
+    try {
+      await downloadExport({ type: newExportType, format })
+      setExportOpen(false); exportData.retry()
+      toast({ title: "Export downloaded", description: "The completed export has been added to the history." })
+    } catch (cause: unknown) { setFormError(cause instanceof Error ? cause.message : "Export failed") } finally { setSaving(false) }
+  }
+
+  return <MainLayout><div className="space-y-5">
+    <PageHeader title="Import / Export Center" description="Import directory and match data, or download live operational exports." />
+    {!sessionLoading && !canList ? <p role="alert" className="text-destructive">Your account does not have permission to use the import/export center.</p> : <>
+      <div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => { setFormError(""); setImportOpen(true) }} disabled={!canImport}><Upload className="mr-2 h-4 w-4" />New import</Button><Button size="sm" variant="outline" onClick={() => { setFormError(""); setExportOpen(true) }} disabled={!availableExports.length}><Download className="mr-2 h-4 w-4" />New export</Button></div>
+      <Card className="shadow-none"><CardHeader><CardTitle className="text-base">Download Templates</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">{IMPORT_TYPES.map((type) => <Button key={type} variant="outline" size="sm" asChild><a href={`/api/templates?type=${type.toLowerCase()}`} download><FileText className="mr-2 h-4 w-4" />{type}</a></Button>)}</CardContent></Card>
+      <Tabs value={tab} onValueChange={setTab}><TabsList className="grid w-full grid-cols-2"><TabsTrigger value="imports"><Upload className="mr-2 h-4 w-4" />Imports</TabsTrigger><TabsTrigger value="exports"><Download className="mr-2 h-4 w-4" />Exports</TabsTrigger></TabsList>
+        <TabsContent value="imports" className="space-y-4"><FilterSelect value={importType} onChange={(value) => { setImportType(value); setImportPage(1) }} label="Import type" options={allOptions(IMPORT_TYPES)} /><DataState loading={sessionLoading || importData.loading} error={importData.error} onRetry={importData.retry}><Card className="overflow-x-auto shadow-none">{importData.data?.jobs.length ? <><ImportHistory jobs={importData.data.jobs} onDetails={setDetailId} /><Pagination page={importPage} pageSize={PAGE_SIZE} total={importData.data.total} itemCount={importData.data.jobs.length} onPageChange={setImportPage} /></> : <EmptyState icon={<Upload className="h-10 w-10" />} title="No import jobs" description="Start an import to populate this history." />}</Card></DataState></TabsContent>
+        <TabsContent value="exports" className="space-y-4"><FilterSelect value={exportType} onChange={(value) => { setExportType(value); setExportPage(1) }} label="Export type" options={allOptions(EXPORT_TYPES)} /><DataState loading={sessionLoading || exportData.loading} error={exportData.error} onRetry={exportData.retry}><Card className="overflow-x-auto shadow-none">{exportData.data?.jobs.length ? <><ExportHistory jobs={exportData.data.jobs} /><Pagination page={exportPage} pageSize={PAGE_SIZE} total={exportData.data.total} itemCount={exportData.data.jobs.length} onPageChange={setExportPage} /></> : <EmptyState icon={<FileSpreadsheet className="h-10 w-10" />} title="No export jobs" description="Downloads and their record counts will appear here." />}</Card></DataState></TabsContent>
+      </Tabs>
+    </>}
+    <Dialog open={importOpen} onOpenChange={(open) => { if (!saving) setImportOpen(open) }}><DialogContent><DialogHeader><DialogTitle>New import</DialogTitle><DialogDescription>Choose a CSV or XLSX file using the downloaded template. Files up to 5MB and 1,000 rows are supported; at most 500 rows are imported.</DialogDescription></DialogHeader><form onSubmit={submitImport} className="space-y-4"><div className="space-y-2"><Label htmlFor="new-import-type">Type</Label><select id="new-import-type" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={newImportType} onChange={(event) => setNewImportType(event.target.value as typeof IMPORT_TYPES[number])}>{IMPORT_TYPES.filter((type) => permissions.includes(importPermissions[type])).map((type) => <option key={type}>{type}</option>)}</select></div><div className="space-y-2"><Label htmlFor="import-file">CSV or XLSX file</Label><Input id="import-file" type="file" accept=".csv,.xlsx" required onChange={(event) => setFile(event.target.files?.[0] || null)} disabled={saving} /></div>{formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}<DialogFooter><Button type="button" variant="outline" onClick={() => setImportOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" disabled={saving || !canImport}>{saving ? "Importing…" : "Import"}</Button></DialogFooter></form></DialogContent></Dialog>
+    <Dialog open={exportOpen} onOpenChange={(open) => { if (!saving) setExportOpen(open) }}><DialogContent><DialogHeader><DialogTitle>New export</DialogTitle><DialogDescription>Generate a current CSV or Excel download. Up to 5,000 records are included.</DialogDescription></DialogHeader><form onSubmit={submitExport} className="space-y-4"><div className="space-y-2"><Label htmlFor="new-export-type">Type</Label><select id="new-export-type" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={newExportType} onChange={(event) => setNewExportType(event.target.value as typeof EXPORT_TYPES[number])}>{availableExports.map((type) => <option key={type}>{type}</option>)}</select></div><div className="space-y-2"><Label htmlFor="new-export-format">Format</Label><select id="new-export-format" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={format} onChange={(event) => setFormat(event.target.value as "CSV" | "XLSX")}><option value="CSV">CSV</option><option value="XLSX">Excel (.xlsx)</option></select></div>{formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}<DialogFooter><Button type="button" variant="outline" onClick={() => setExportOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" disabled={saving || !availableExports.length}>{saving ? "Generating…" : "Download"}</Button></DialogFooter></form></DialogContent></Dialog>
+    <Dialog open={Boolean(detailId)} onOpenChange={(open) => { if (!open) setDetailId(null) }}><DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto"><DialogHeader><DialogTitle>{detail.data?.job.jobNumber || "Import details"}</DialogTitle><DialogDescription>First 200 rows. Imported entity references are stored with each imported row.</DialogDescription></DialogHeader><DataState loading={detail.loading} error={detail.error} onRetry={detail.retry}><div className="overflow-x-auto">{detail.data?.rows.length ? <ImportRowDetails rows={detail.data.rows} /> : <EmptyState title="No rows" description="This import job has no row records." />}</div></DataState></DialogContent></Dialog>
+  </div></MainLayout>
+}

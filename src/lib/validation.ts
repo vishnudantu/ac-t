@@ -191,6 +191,7 @@ export type InventoryCreateInput = z.infer<typeof inventoryCreateSchema>
 export const inventoryListQuerySchema = paginationQuerySchema.extend({
   matchId: id.optional(),
   categoryId: id.optional(),
+  search: z.string().trim().max(200).optional(),
 }).strict()
 
 export type InventoryListQuery = z.infer<typeof inventoryListQuerySchema>
@@ -354,6 +355,56 @@ export function assertQuotaRelations(
       throw new Error('Every ticket category must belong to the match and be active')
     }
   }
+}
+
+// ===========================================================================
+// APPROVAL WORKFLOW
+// ===========================================================================
+
+export const approvalWorkflowStepSchema = z.object({
+  stepOrder: z.number().int().min(1).max(20),
+  name: z.string().trim().min(2).max(150),
+  description: z.string().trim().max(500).nullish(),
+  approverRoleId: z.string().trim().min(1).nullish(),
+  approverUserId: z.string().trim().min(1).nullish(),
+  minQuantity: z.number().int().min(0).max(1_000_000).default(0),
+  maxQuantity: z.number().int().min(0).max(1_000_000).nullish(),
+  allowPartialApproval: z.boolean().default(true),
+  allowReturnForClarification: z.boolean().default(true),
+  allowEscalation: z.boolean().default(true),
+  timeoutHours: z.number().int().min(1).max(720).nullish(),
+  isActive: z.boolean().default(true),
+}).strict().refine((step) => step.approverRoleId || step.approverUserId, {
+  message: 'Each step needs an approver role or a specific approver', path: ['approverRoleId'],
+}).refine((step) => step.maxQuantity === undefined || step.maxQuantity === null || step.maxQuantity >= step.minQuantity, {
+  message: 'Maximum quantity must be at least the minimum quantity', path: ['maxQuantity'],
+})
+
+export type ApprovalWorkflowStepInput = z.infer<typeof approvalWorkflowStepSchema>
+
+/**
+ * Validates a workflow's step list: 1..10 steps, each carrying an approver
+ * (enforced by approvalWorkflowStepSchema), with unique stepOrder values that
+ * form the contiguous sequence 1..N.
+ */
+export const workflowStepsSchema = z.array(approvalWorkflowStepSchema).min(1).max(10).superRefine((steps, context) => {
+  const orders = steps.map((step) => step.stepOrder)
+  if (new Set(orders).size !== orders.length) {
+    context.addIssue({ code: 'custom', path: [], message: 'Step order values must be unique' })
+    return
+  }
+  const expected = Array.from({ length: steps.length }, (_, index) => index + 1)
+  const contiguous = orders.every((order, index) => order === expected[index])
+  if (!contiguous) {
+    context.addIssue({ code: 'custom', path: [], message: 'Step orders must be the contiguous sequence 1..N' })
+  }
+})
+
+export type WorkflowStepsInput = z.infer<typeof workflowStepsSchema>
+
+/** Reassigns stepOrder 1..N by array position, leaving every other field untouched. */
+export function renumberWorkflowSteps<T extends { stepOrder: number }>(steps: T[]): T[] {
+  return steps.map((step, index) => ({ ...step, stepOrder: index + 1 }))
 }
 
 export interface AllocationRelations {

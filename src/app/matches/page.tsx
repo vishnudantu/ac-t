@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
-import { CalendarDays, MapPin, Trophy, Plus, Pencil, Trash2, Tags } from "lucide-react"
+import { useEffect, useState } from "react"
+import { CalendarDays, Copy, MapPin, Trophy, Plus, Pencil, Trash2, Tags } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSession } from "@/hooks/use-session"
 import { MatchFormDialog } from "@/components/matches/match-form-dialog"
+import { ReplicateMatchDialog } from "@/components/matches/replicate-match-dialog"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { postLifecycle } from "@/components/lifecycle/client"
 import { Input } from "@/components/ui/input"
@@ -53,6 +54,7 @@ export default function MatchesPage() {
   const [editing, setEditing] = useState<MatchRecord | null>(null)
   const [deleting, setDeleting] = useState<MatchRecord | null>(null)
   const [venues, setVenues] = useState<Venue[]>([])
+  const [replicateOpen, setReplicateOpen] = useState(false)
   const [actionError, setActionError] = useState("")
   const [categoryMatch, setCategoryMatch] = useState<MatchRecord | null>(null)
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; displayName: string; sortOrder: number; pricingTier: number; _count?: { inventoryPools: number; requestItems: number } }[]>([])
@@ -67,6 +69,13 @@ export default function MatchesPage() {
   )
 
   const matches = (data?.matches ?? []) as MatchRecord[]
+
+  useEffect(() => {
+    fetch("/api/venues", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body: { venues?: Venue[] }) => setVenues(body.venues ?? []))
+      .catch(() => undefined)
+  }, [])
 
   async function openForm(match: MatchRecord | null) {
     setEditing(match)
@@ -158,7 +167,7 @@ export default function MatchesPage() {
           description="Match schedules, venues, request windows, and linked operational records."
           onRefresh={retry}
           refreshing={loading}
-          actions={canWrite ? <Button size="sm" onClick={() => { void openForm(null) }}><Plus className="mr-2 h-4 w-4" />New match</Button> : undefined}
+          actions={canWrite ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setReplicateOpen(true)}><Copy className="mr-2 h-4 w-4" />Replicate</Button><Button size="sm" onClick={() => { void openForm(null) }}><Plus className="mr-2 h-4 w-4" />New match</Button></div> : undefined}
         />
         {actionError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{actionError}</p>}
         <Card className="shadow-none">
@@ -262,6 +271,7 @@ export default function MatchesPage() {
         </Card>
       </div>
       <MatchFormDialog open={formOpen} match={editing} venues={venues} onOpenChange={setFormOpen} onSaved={retry} />
+      <ReplicateMatchDialog open={replicateOpen} onOpenChange={setReplicateOpen} matches={matches.map((match) => ({ id: match.id, title: match.title }))} venues={venues} onReplicated={retry} />
       <Dialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open) setDeleting(null) }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Delete match permanently?</DialogTitle><DialogDescription>Delete “{deleting?.title}” and every related record — requests, approvals, allocations, issuance, inventory, quotas, ticket categories and audit events. This cannot be undone.</DialogDescription></DialogHeader>

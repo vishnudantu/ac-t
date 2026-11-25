@@ -3,36 +3,15 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { hasPermission } from '@/lib/auth'
 import { withApiHandler } from '@/lib/api'
-
-const stepSchema = z.object({
-  stepOrder: z.number().int().min(1).max(20),
-  name: z.string().trim().min(2).max(150),
-  description: z.string().trim().max(500).nullish(),
-  approverRoleId: z.string().trim().min(1).nullish(),
-  approverUserId: z.string().trim().min(1).nullish(),
-  minQuantity: z.number().int().min(0).max(1_000_000).default(0),
-  maxQuantity: z.number().int().min(0).max(1_000_000).nullish(),
-  allowPartialApproval: z.boolean().default(true),
-  allowReturnForClarification: z.boolean().default(true),
-  allowEscalation: z.boolean().default(true),
-  timeoutHours: z.number().int().min(1).max(720).nullish(),
-  isActive: z.boolean().default(true),
-}).strict().refine((step) => step.approverRoleId || step.approverUserId, {
-  message: 'Each step needs an approver role or a specific approver', path: ['approverRoleId'],
-}).refine((step) => step.maxQuantity === undefined || step.maxQuantity === null || step.maxQuantity >= step.minQuantity, {
-  message: 'Maximum quantity must be at least the minimum quantity', path: ['maxQuantity'],
-})
+import { workflowStepsSchema } from '@/lib/validation'
 
 const workflowUpsertSchema = z.object({
   matchId: z.string().trim().min(1).max(100),
   name: z.string().trim().min(2).max(150),
   description: z.string().trim().max(1000).nullish(),
   isDefault: z.boolean().default(true),
-  steps: z.array(stepSchema).min(1).max(10),
-}).strict().superRefine((value, context) => {
-  const orders = new Set(value.steps.map((step) => step.stepOrder))
-  if (orders.size !== value.steps.length) context.addIssue({ code: 'custom', path: ['steps'], message: 'Step order values must be unique' })
-})
+  steps: workflowStepsSchema,
+}).strict()
 
 export const GET = withApiHandler(async (request: NextRequest, session) => {
   if (!hasPermission(session.permissions, 'approvals:read')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

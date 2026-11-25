@@ -40,13 +40,30 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
       if (categories.length !== input.allocations.length || categories.some((category) => category.matchId !== current.matchId || !category.isActive)) {
         throw new Error('Every quota category must be active and belong to the match')
       }
+      const existing = new Map(current.quotaAllocations.map((allocation) => [allocation.ticketCategoryId, allocation]))
+      const requestedIds = new Set(input.allocations.map((item) => item.ticketCategoryId))
+      // Consumption history must survive edits: never drop a category that has
+      // been consumed, and never allocate below what was already consumed.
+      for (const allocation of current.quotaAllocations) {
+        if (!requestedIds.has(allocation.ticketCategoryId) && allocation.consumedQuantity > 0) {
+          throw new Error('A category with consumed quantity cannot be removed. Reduce its allocation instead.')
+        }
+      }
       for (const item of input.allocations) {
+        const previous = existing.get(item.ticketCategoryId)
+        if (previous && item.allocatedQuantity < previous.consumedQuantity) {
+          throw new Error(`Allocation cannot be below the ${previous.consumedQuantity} already consumed for this category`)
+        }
         await assertQuotaCapacity(tx, current.matchId, item.ticketCategoryId, item.allocatedQuantity, id)
       }
-      await tx.quotaAllocation.deleteMany({ where: { quotaPoolId: id } })
-      await tx.quotaAllocation.createMany({ data: input.allocations.map((item) => ({
-        quotaPoolId: id, ticketCategoryId: item.ticketCategoryId, allocatedQuantity: item.allocatedQuantity,
-      })) })
+      await tx.quotaAllocation.deleteMany({ where: { quotaPoolId: id, consumedQuantity: 0 } })
+      for (const item of input.allocations) {
+        await tx.quotaAllocation.upsert({
+          where: { quotaPoolId_ticketCategoryId: { quotaPoolId: id, ticketCategoryId: item.ticketCategoryId } },
+          update: { allocatedQuantity: item.allocatedQuantity },
+          create: { quotaPoolId: id, ticketCategoryId: item.ticketCategoryId, allocatedQuantity: item.allocatedQuantity },
+        })
+      }
     }
     const totalAllocation = input.allocations
       ? input.allocations.reduce((sum, item) => sum + item.allocatedQuantity, 0)
