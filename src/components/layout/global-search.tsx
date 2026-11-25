@@ -62,7 +62,7 @@ export function GlobalSearch() {
   }
 
   return <>
-    <Button variant="outline" size="sm" onClick={() => setOpen(true)} className="gap-2 text-muted-foreground" aria-label="Search requests, requesters and matches">
+    <Button variant="outline" size="icon" onClick={() => setOpen(true)} className="gap-2 text-muted-foreground sm:h-9 sm:w-auto sm:px-3" aria-label="Search requests, requesters and matches">
       <Search className="h-4 w-4" /><span className="hidden md:inline">Search…</span><kbd className="hidden rounded border px-1 text-[10px] font-normal md:inline">⌘K</kbd>
     </Button>
     <Dialog open={open} onOpenChange={setOpen}>

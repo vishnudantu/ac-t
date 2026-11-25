@@ -14,7 +14,10 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const matchId = z.string().trim().min(1).max(100).parse(request.nextUrl.searchParams.get('matchId'))
-  const match = await prisma.match.findUnique({ where: { id: matchId }, select: { id: true } })
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    select: { id: true, totalInventory: true, venue: { select: { id: true, name: true, capacity: true } } },
+  })
   if (!match) return NextResponse.json({ error: 'Match not found' }, { status: 404 })
 
   const categories = await prisma.ticketCategory.findMany({
@@ -49,5 +52,19 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     }
   })
 
-  return NextResponse.json({ success: true, categories: rows })
+  const totalCapacity = rows.reduce((sum, row) => sum + row.capacity, 0)
+  const totalAllocated = rows.reduce((sum, row) => sum + row.allocated, 0)
+  return NextResponse.json({
+    success: true,
+    categories: rows,
+    summary: {
+      venueId: match.venue.id,
+      venueName: match.venue.name,
+      venueCapacity: match.venue.capacity,
+      totalInventory: match.totalInventory,
+      totalCapacity,
+      totalAllocated,
+      totalRemaining: Math.max(0, totalCapacity - totalAllocated),
+    },
+  })
 })

@@ -128,7 +128,7 @@ export default function VenuesPage() {
             <TableCell><p className="font-medium">{venue.name}</p><p className="text-xs text-muted-foreground">{venue.shortName}</p></TableCell>
             <TableCell><span className="flex items-center gap-1.5 text-sm"><MapPin className="h-3.5 w-3.5 text-muted-foreground" />{venue.city}</span></TableCell>
             <TableCell className="text-sm">{venue.state}</TableCell>
-            <TableCell className="text-right tabular-nums">{venue.capacity === null ? "—" : formatNumber(venue.capacity)}</TableCell>
+            <TableCell className="text-right text-lg font-bold tabular-nums text-primary">{venue.capacity === null ? "—" : formatNumber(venue.capacity)}</TableCell>
             {(canWrite || canDelete) && <TableCell><div className="flex justify-end gap-1">
               {canWrite && <Button variant="ghost" size="icon" aria-label={`Edit ${venue.name}`} onClick={() => openForm(venue)}><Pencil className="h-4 w-4" /></Button>}
               {canDelete && <Button variant="ghost" size="icon" aria-label={`Delete ${venue.name}`} onClick={() => { setFormError(""); setDeleting(venue) }}><Trash2 className="h-4 w-4 text-destructive" /></Button>}

@@ -11,7 +11,7 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
   const matches = await prisma.match.findMany({
     where: matchId ? { id: matchId } : undefined,
     include: {
-      venue: { select: { name: true, city: true } },
+      venue: { select: { name: true, city: true, capacity: true } },
       requests: {
         select: { id: true, status: true, totalRequested: true, totalApproved: true, totalAllocated: true, totalIssued: true, fulfilmentStatus: true },
       },
@@ -55,7 +55,7 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     }
     return {
       id: match.id, title: match.title, matchDate: match.matchDate,
-      venue: match.venue.name, status: match.status,
+      venue: match.venue.name, venueCapacity: match.venue.capacity, status: match.status,
       totals, inventory, quota, requestsByStatus, reconciliation,
     }
   })

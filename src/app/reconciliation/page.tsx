@@ -17,6 +17,7 @@ interface ReconciliationRow {
   title: string
   matchDate: string
   venue: string
+  venueCapacity: number | null
   status: string
   totals: { requested: number; approved: number; allocated: number; issued: number }
   inventory: { total: number; available: number; allocated: number; issued: number; returned: number; void: number }
@@ -66,7 +67,7 @@ export default function ReconciliationPage() {
           : rows.map((row) => <Card key={row.id} className="shadow-none">
             <CardHeader className="pb-3">
               <CardTitle className="flex flex-wrap items-center gap-2 text-base">{row.title}<Badge className={getStatusColor(row.status)}>{row.status}</Badge></CardTitle>
-              <p className="text-xs text-muted-foreground">{formatDate(row.matchDate)} · {row.venue}</p>
+              <div className="flex flex-wrap items-baseline gap-x-3"><p className="text-xs text-muted-foreground">{formatDate(row.matchDate)} · {row.venue}</p><p className="text-xl font-bold tabular-nums text-primary">{row.venueCapacity === null ? "—" : `${formatNumber(row.venueCapacity)} seats`}</p></div>
             </CardHeader>
             <CardContent className="space-y-4">
               <Table>

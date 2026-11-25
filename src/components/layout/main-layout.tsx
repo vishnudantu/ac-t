@@ -4,6 +4,7 @@ import * as React from "react"
 import { Sidebar } from "./sidebar"
 import { Header } from "./header"
 import { cn } from "@/lib/utils"
+import { BottomNav } from "./bottom-nav"
 
 interface MainLayoutProps {
   children: React.ReactNode
@@ -30,9 +31,10 @@ export function MainLayout({ children }: MainLayoutProps) {
       {/* Main Content */}
       <div className="lg:pl-64">
         <Header onMenuClick={() => setSidebarOpen(true)} />
-        <main className="p-4 lg:p-6" id="main-content">
+        <main className="p-4 pb-24 lg:p-6" id="main-content">
           {children}
         </main>
+        <BottomNav />
       </div>
     </div>
   )

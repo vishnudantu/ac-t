@@ -243,7 +243,9 @@ export default function RequestsPage() {
                     <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Match</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Requested / approved</TableHead><TableHead>Created</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader><TableBody>{group.requests.map((request) => <TableRow key={request.id}><TableCell><Link className="font-mono text-sm text-primary hover:underline" href={`/requests/${request.id}`}>{request.requestNumber}</Link></TableCell><TableCell className="text-sm">{request.match.title}</TableCell><TableCell><Badge className={getStatusColor(request.status)}>{formatStatus(request.status)}</Badge></TableCell><TableCell className="text-right tabular-nums">{request.totalRequested} / {request.totalApproved}</TableCell><TableCell className="text-xs">{formatDate(request.createdAt)}</TableCell><TableCell><Button variant="ghost" size="sm" asChild><Link href={`/requests/${request.id}`}>View</Link></Button></TableCell></TableRow>)}</TableBody></Table>
                   </CardContent></Card>)}</div>
                 ) : !error ? (
-                  <div className="overflow-x-auto">
+                  <>
+                    <div className="space-y-3 md:hidden">{filteredRequests.map((request) => <Link key={request.id} href={`/requests/${request.id}`} className="block rounded-lg border bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-2"><span className="font-mono text-sm font-semibold text-primary">{request.requestNumber}</span><Badge className={getStatusColor(request.status)}>{formatStatus(request.status)}</Badge></div><p className="mt-1.5 text-base font-semibold">{request.requester.fullName}</p><p className="text-sm text-muted-foreground">{request.match.title}</p><div className="mt-2 flex flex-wrap gap-1">{request.items.map((item) => <Badge key={item.id} variant="secondary" className="text-xs">{item.ticketCategory.displayName} ({item.requestedQuantity})</Badge>)}</div><div className="mt-3 flex items-center justify-between text-sm"><span className="font-medium">{request.totalRequested} / <span className="text-green-700">{request.totalApproved}</span></span><span className="text-xs text-muted-foreground">{formatDate(request.createdAt)}</span></div></Link>)}</div>
+                  <div className="hidden overflow-x-auto md:block">
                     <Table>
                       <TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Requester</TableHead><TableHead>Match</TableHead><TableHead>Categories</TableHead><TableHead className="text-right">Requested / approved</TableHead><TableHead>Status</TableHead><TableHead>Priority</TableHead><TableHead>Created</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>
                       <TableBody>
@@ -267,6 +269,7 @@ export default function RequestsPage() {
                       </TableBody>
                     </Table>
                   </div>
+                  </>
                 ) : null}
               </CardContent>
             </Card>
