@@ -21,7 +21,7 @@ type ApprovalStep = Prisma.ApprovalStepGetPayload<{
     assignedRole: true
     stepDefinition: true
     workflow: true
-    request: { include: { items: true; approvalSteps: true } }
+    request: { include: { items: { include: { ticketCategory: true } }; approvalSteps: true } }
   }
 }>
 type RoleClient = Pick<Prisma.TransactionClient, 'roleAssignment'>
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           assignedRole: { select: { id: true, name: true, displayName: true } },
           assignedTo: { select: { id: true, fullName: true } },
           request: { include: {
-            items: true,
+            items: { include: { ticketCategory: { select: { id: true, name: true, displayName: true } } } },
             requester: { select: { id: true, fullName: true, mobileNumber: true } },
             match: { select: { id: true, title: true, matchDate: true } },
           } },
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const step = overseeAll
         ? await tx.approvalStep.findUnique({ where: { id: input.stepId }, include: {
           assignedRole: true, stepDefinition: true, workflow: true,
-          request: { include: { items: true, approvalSteps: true } },
+          request: { include: { items: { include: { ticketCategory: true } }, approvalSteps: true } },
         } }).then((step) => {
           if (!step) throw new LifecycleRuleError('Approval step not found', 404)
           return step
@@ -120,7 +120,7 @@ function findAssignedStep(tx: Transaction, stepId: string, userId: string, roleI
       assignedRole: true,
       stepDefinition: true,
       workflow: true,
-      request: { include: { items: true, approvalSteps: true } },
+      request: { include: { items: { include: { ticketCategory: true } }, approvalSteps: true } },
     },
   }).then((step) => {
     if (!step) throw new LifecycleRuleError('Approval step not found or not assigned', 404)
