@@ -300,6 +300,36 @@ async function main() {
   console.log('✅ Super Admin user created')
 
   // ============================================
+  // Create Quota Templates (reusable stakeholder groups)
+  // ============================================
+  const quotaTemplates = [
+    { name: 'APEX_ALLOCATION', displayName: 'Apex Allocation', description: 'Apex committee members and distinguished invitees' },
+    { name: 'BCCI_ALLOCATION', displayName: 'BCCI Allocation', description: 'BCCI officials, visiting boards and match officials' },
+    { name: 'TCM_ALLOCATION', displayName: 'TCM Allocation', description: 'Tournament and competitive management allocations' },
+    { name: 'ACA_DISTRICTS_ALLOCATION', displayName: 'ACA Districts Allocation', description: 'District cricket associations under ACA' },
+    { name: 'ACA_CLUBS_ALLOCATION', displayName: 'ACA Clubs Allocation', description: 'Affiliated clubs under ACA' },
+    { name: 'ACA_INTERNATIONAL_PLAYERS_ALLOCATION', displayName: 'ACA International Players Allocation', description: 'International and contracted players and their guests' },
+    { name: 'VDCA_ALLOCATION', displayName: 'VDCA Allocation', description: 'Visakhapatnam District Cricket Association' },
+    { name: 'DISTRICT_COLLECTOR_ALLOCATION', displayName: 'District Collector Allocation', description: 'District collector office and government protocol' },
+    { name: 'COMMISSIONER_OF_POLICE_ALLOCATION', displayName: 'Commissioner of Police Allocation', description: 'Police commissionerate and security protocol' },
+    { name: 'GVMC_ALLOCATION', displayName: 'GVMC Allocation', description: 'Greater Visakhapatnam Municipal Corporation' },
+    { name: 'ACA_STAFF_ALLOCATION', displayName: 'ACA Staff Allocation', description: 'ACA office staff and operational personnel' },
+    { name: 'DISABLED_CRICKETER_ALLOCATION', displayName: 'Disabled Cricketer Allocation', description: 'Differently-abled cricketers and their escorts' },
+    { name: 'STADIUM_OBLIGATION_ALLOCATION', displayName: 'Stadium Obligation Allocation', description: 'Stadium operational obligations, vendors and duty staff' },
+    { name: 'PRESS_MEDIA_ALLOCATION', displayName: 'Press/Media Allocation', description: 'Accredited press, photo and broadcast media' },
+    { name: 'STADIUM_CHAIRMAN_ALLOCATION', displayName: 'Stadium Chairman Allocation', description: 'Stadium chairman and hosting committee' },
+  ]
+
+  for (const template of quotaTemplates) {
+    await prisma.quotaTemplate.upsert({
+      where: { name: template.name },
+      update: { displayName: template.displayName, description: template.description, isActive: true },
+      create: template,
+    })
+  }
+  console.log('✅ Quota templates created')
+
+  // ============================================
   // Create Sample Organisations
   // ============================================
   const organisations = [

@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { LayoutDashboard, Calendar, FileText, Users, Ticket, Package, Truck, Shield, Settings, BarChart3, ClipboardList, FolderOpen, Bell, UserCog, Database, ChevronLeft, ChevronRight, Building2, GitBranch, Scale, Plug } from "lucide-react"
+import { LayoutDashboard, Calendar, FileText, Users, Ticket, Package, Truck, Shield, Settings, BarChart3, ClipboardList, FolderOpen, Bell, UserCog, Database, ChevronLeft, ChevronRight, Building2, GitBranch, Scale, Plug, Layers3 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSession } from "@/hooks/use-session"
 import { LogoutButton } from "./logout-button"
@@ -25,6 +25,7 @@ const navigation = [
   { title: "Distribution", href: "/distribution", icon: Truck, permission: "distribution:read" },
   { title: "Inventory", href: "/inventory", icon: Ticket, permission: "inventory:read" },
   { title: "Quotas", href: "/quotas", icon: Shield, permission: "quotas:read" },
+  { title: "Quota Templates", href: "/admin/quota-templates", icon: Layers3, permission: "quotas:read" },
   { title: "Requesters", href: "/requesters", icon: Users, permission: "requests:read" },
   { title: "Reports", href: "/reports", icon: BarChart3, permission: "reports:read" },
   { title: "Reconciliation", href: "/reconciliation", icon: Scale, permission: "reports:read" },
