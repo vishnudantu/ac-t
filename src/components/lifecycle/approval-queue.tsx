@@ -44,7 +44,7 @@ export function ApprovalQueue({ steps, canDecide, historical, filtered, onClear,
           <Card key={step.id} className="border-l-2 border-l-primary/60 shadow-none">
             <CardContent className="p-4">
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_180px]">
-                <div className="min-w-0">
+                <div className="min-w-0 overflow-hidden">
                   <div className="flex flex-wrap items-center gap-2">
                     <Link href={`/requests/${request.id}`} className="font-mono text-sm font-semibold text-primary hover:underline">{request.requestNumber}</Link>
                     <Badge className={getPriorityColor(request.priority)}>{formatStatus(request.priority)}</Badge>
@@ -60,7 +60,7 @@ export function ApprovalQueue({ steps, canDecide, historical, filtered, onClear,
                     <p><span className="font-medium text-foreground">{historical ? "Completed" : "Deadline"}</span><br />{(historical ? step.completedAt : step.deadlineAt) ? formatDate((historical ? step.completedAt : step.deadlineAt) as string) : "Not recorded"}</p>
                   </div>
                 </div>
-                <dl className="grid grid-cols-3 gap-2 border-y py-3 xl:border-x xl:border-y-0 xl:px-4 xl:py-0">
+                <dl className="grid grid-cols-3 gap-2 border-y py-3 xl:border-x xl:border-y-0 xl:px-4 xl:py-0 xl:max-w-[180px]">
                   <div><dt className="text-xs text-muted-foreground">Requested</dt><dd className="mt-1 text-xl font-bold tabular-nums">{formatNumber(request.totalRequested)}</dd></div>
                   <div><dt className="text-xs text-muted-foreground">Approved</dt><dd className="mt-1 text-xl font-bold tabular-nums text-green-700 dark:text-green-400">{formatNumber(request.totalApproved)}</dd></div>
                   <div><dt className="text-xs text-muted-foreground">Items</dt><dd className="mt-1 text-xl font-bold tabular-nums">{request.items.length}</dd></div>
