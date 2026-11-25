@@ -15,6 +15,8 @@ const updateSchema = z.object({
   seatStart: z.number().int().positive().nullish(),
   seatEnd: z.number().int().positive().nullish(),
   ticketFormat: z.enum(['PHYSICAL', 'DIGITAL', 'BOTH']).optional(),
+  ticketPurpose: z.enum(['COMPLIMENTARY', 'PURCHASE']).optional(),
+  pricingUnit: z.enum(['PER_SEAT', 'PER_SUITE']).optional(),
   faceValue: z.string().regex(/^\d+(\.\d{1,2})?$/, 'faceValue must be a positive decimal').nullish(),
   notes: z.string().trim().max(2000).nullish(),
 }).strict().refine((value) => Object.keys(value).length > 0, 'At least one change is required')

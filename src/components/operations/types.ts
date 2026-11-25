@@ -83,6 +83,8 @@ export const inventorySchema = z.object({
   seatEnd: z.number().nullable().optional(),
   notes: z.string().nullable().optional(),
   ticketFormat: z.string(),
+  ticketPurpose: z.string().optional().default('COMPLIMENTARY'),
+  pricingUnit: z.string().optional().default('PER_SEAT'),
   faceValue: z.union([z.string(), z.number()]).nullable(),
   totalQuantity: z.number(),
   reservedQuantity: z.number(),

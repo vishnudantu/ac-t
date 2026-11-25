@@ -354,6 +354,10 @@ model InventoryPool {
   seatEnd           Int?
   ticketFormat      String   @default("PHYSICAL")
   faceValue         Decimal? @db.Decimal(10, 2)
+  // How tickets in this pool are provided: COMPLIMENTARY (GST set-off) or PURCHASE.
+  ticketPurpose     String   @default("COMPLIMENTARY")
+  // For suites: price is per suite box, not per seat.
+  pricingUnit       String   @default("PER_SEAT")
   pricingCategory   String?
   totalQuantity     Int      @default(0)
   reservedQuantity  Int      @default(0)

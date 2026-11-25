@@ -164,6 +164,8 @@ export const inventoryCreateSchema = z.object({
   seatStart: nonNegativeInt.nullish(),
   seatEnd: nonNegativeInt.nullish(),
   ticketFormat: z.enum(TICKET_FORMATS).default('PHYSICAL'),
+  ticketPurpose: z.enum(['COMPLIMENTARY', 'PURCHASE']).default('COMPLIMENTARY'),
+  pricingUnit: z.enum(['PER_SEAT', 'PER_SUITE']).default('PER_SEAT'),
   faceValue: z.string().regex(/^\d+(\.\d{1,2})?$/, 'faceValue must be a positive decimal').nullish(),
   pricingCategory: optionalText,
   totalQuantity: positiveInt,

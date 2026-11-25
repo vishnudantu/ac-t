@@ -128,7 +128,7 @@ describe('API boundary validation', () => {
       matchId: 'match-1', ticketCategoryId: 'category-1', standName: 'East', totalQuantity: 20,
     })).toEqual({
       matchId: 'match-1', ticketCategoryId: 'category-1', standName: 'East', totalQuantity: 20,
-      ticketFormat: 'PHYSICAL', isQuotaPool: false,
+      ticketFormat: 'PHYSICAL', ticketPurpose: 'COMPLIMENTARY', pricingUnit: 'PER_SEAT', isQuotaPool: false,
     })
   })
 

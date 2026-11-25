@@ -26,6 +26,21 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       inventoryPools: { select: { availableQuantity: true } },
     }, take: 100, orderBy: { sortOrder: 'asc' },
   })
+  // Purpose and pricing breakdown so GST set-off and purchase revenue are visible.
+  const pools = await prisma.inventoryPool.findMany({
+    where,
+    select: { ticketPurpose: true, pricingUnit: true, faceValue: true, totalQuantity: true, issuedQuantity: true },
+  })
+  const setoff = await prisma.systemSetting.findUnique({ where: { key: 'pricing.complimentary_setoff_per_ticket' }, select: { value: true } })
+  const setoffPerTicket = Number(setoff?.value || 499)
+  const purposeBreakdown = pools.reduce((acc, pool) => {
+    const purpose = pool.ticketPurpose || 'COMPLIMENTARY'
+    const faceValue = Number(pool.faceValue ?? (purpose === 'COMPLIMENTARY' ? setoffPerTicket : 0))
+    const gross = faceValue * pool.issuedQuantity
+    const bucket = acc[purpose] ?? { pools: 0, issued: 0, value: 0 }
+    acc[purpose] = { pools: bucket.pools + 1, issued: bucket.issued + pool.issuedQuantity, value: bucket.value + gross }
+    return acc
+  }, {} as Record<string, { pools: number; issued: number; value: number }>)
   return NextResponse.json({ success: true, matches, summary: {
     requests: requests._count._all,
     requested: requests._sum.totalRequested || 0,
@@ -39,6 +54,8 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     quotaConsumed: quotas._sum.consumedQuantity || 0,
     allocationRecords: allocations._count._all,
     issuanceRecords: issuances._count._all,
+    purposeBreakdown,
+    complimentarySetoffPerTicket: setoffPerTicket,
   }, categories: byCategory.map((category) => ({
     id: category.id,
     name: category.displayName,

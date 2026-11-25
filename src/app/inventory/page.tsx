@@ -28,7 +28,7 @@ export default function InventoryPage() {
   const [page, setPage] = useState(1)
   const { user } = useSession()
   const [editing, setEditing] = useState<(typeof inventory)[number] | null>(null)
-  const [editForm, setEditForm] = useState({ totalQuantity: "", standName: "", blockName: "", gateName: "", rowStart: "", rowEnd: "", seatStart: "", seatEnd: "", ticketFormat: "PHYSICAL", faceValue: "", notes: "" })
+  const [editForm, setEditForm] = useState({ totalQuantity: "", standName: "", blockName: "", gateName: "", rowStart: "", rowEnd: "", seatStart: "", seatEnd: "", ticketFormat: "PHYSICAL", ticketPurpose: "COMPLIMENTARY", pricingUnit: "PER_SEAT", faceValue: "", notes: "" })
   const [editError, setEditError] = useState("")
   const [editSaving, setEditSaving] = useState(false)
   const [deleting, setDeleting] = useState<(typeof inventory)[number] | null>(null)
@@ -37,6 +37,7 @@ export default function InventoryPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createError, setCreateError] = useState("")
   const [createSaving, setCreateSaving] = useState(false)
+  const [setoffDefault, setSetoffDefault] = useState("499")
   const [matches, setMatches] = useState<{ id: string; title: string }[]>([])
   const [categoryOptionsForCreate, setCategories] = useState<{ id: string; displayName: string; pricingTier: number }[]>([])
   const [categoryOpen, setCategoryOpen] = useState(false)
@@ -45,15 +46,21 @@ export default function InventoryPage() {
   const [categoryForm, setCategoryForm] = useState({ displayName: "", pricingTier: "0", sortOrder: "0", colorCode: "#1e3a8a" })
   const [editingCategory, setEditingCategory] = useState<{ id: string; displayName: string; pricingTier: number } | null>(null)
   const [deletingCategory, setDeletingCategory] = useState<{ id: string; displayName: string } | null>(null)
-  const [createForm, setCreateForm] = useState({ matchId: "", ticketCategoryId: "", standName: "", blockName: "", gateName: "", ticketFormat: "PHYSICAL", faceValue: "", totalQuantity: "" })
+  const [createForm, setCreateForm] = useState({ matchId: "", ticketCategoryId: "", standName: "", blockName: "", gateName: "", ticketFormat: "PHYSICAL", ticketPurpose: "COMPLIMENTARY", pricingUnit: "PER_SEAT", faceValue: "", totalQuantity: "" })
   const canAdjust = Boolean(user?.permissions.includes("inventory:adjust"))
   const canWrite = Boolean(user?.permissions.includes("inventory:write"))
   const canDelete = Boolean(user?.roles?.includes("SUPER_ADMIN"))
 
   async function openCreate() {
     setCreateError("")
-    setCreateForm({ matchId: "", ticketCategoryId: "", standName: "", blockName: "", gateName: "", ticketFormat: "PHYSICAL", faceValue: "", totalQuantity: "" })
+    setCreateForm({ matchId: "", ticketCategoryId: "", standName: "", blockName: "", gateName: "", ticketFormat: "PHYSICAL", ticketPurpose: "COMPLIMENTARY", pricingUnit: "PER_SEAT", faceValue: setoffDefault, totalQuantity: "" })
     setCreateOpen(true)
+    fetch("/api/pricing").then((r) => r.json()).then((body: { complimentarySetoffPerTicket?: string }) => {
+      if (body.complimentarySetoffPerTicket) {
+        setSetoffDefault(body.complimentarySetoffPerTicket)
+        setCreateForm((current) => ({ ...current, faceValue: current.faceValue || body.complimentarySetoffPerTicket! }))
+      }
+    }).catch(() => undefined)
     try {
       const response = await fetch("/api/matches?limit=100", { cache: "no-store" })
       const body = await response.json() as { matches?: { id: string; title: string }[] }
@@ -169,6 +176,7 @@ export default function InventoryPage() {
           matchId: createForm.matchId, ticketCategoryId: createForm.ticketCategoryId,
           standName: createForm.standName, blockName: createForm.blockName || null,
           gateName: createForm.gateName || null, ticketFormat: createForm.ticketFormat,
+          ticketPurpose: createForm.ticketPurpose, pricingUnit: createForm.pricingUnit,
           faceValue: createForm.faceValue || null, totalQuantity: Number(createForm.totalQuantity),
         }),
       })
@@ -200,7 +208,7 @@ export default function InventoryPage() {
       rowStart: item.rowStart || "", rowEnd: item.rowEnd || "",
       seatStart: item.seatStart === null || item.seatStart === undefined ? "" : String(item.seatStart),
       seatEnd: item.seatEnd === null || item.seatEnd === undefined ? "" : String(item.seatEnd),
-      ticketFormat: item.ticketFormat, faceValue: item.faceValue === null ? "" : String(item.faceValue), notes: item.notes || "",
+      ticketFormat: item.ticketFormat, ticketPurpose: item.ticketPurpose ?? "COMPLIMENTARY", pricingUnit: item.pricingUnit ?? "PER_SEAT", faceValue: item.faceValue === null ? "" : String(item.faceValue), notes: item.notes || "",
     })
     setEditError("")
   }
@@ -225,6 +233,8 @@ export default function InventoryPage() {
           seatStart: editForm.seatStart === "" ? null : Number(editForm.seatStart),
           seatEnd: editForm.seatEnd === "" ? null : Number(editForm.seatEnd),
           ticketFormat: editForm.ticketFormat,
+          ticketPurpose: editForm.ticketPurpose,
+          pricingUnit: editForm.pricingUnit,
           faceValue: editForm.faceValue || null,
           notes: editForm.notes || null,
         }),
@@ -336,6 +346,7 @@ export default function InventoryPage() {
                 <div className="space-y-3 p-3 md:hidden">{filteredInventory.map((item) => <div key={item.id} className="rounded-lg border bg-card p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{item.standName}</p><p className="text-xs text-muted-foreground">{[item.blockName && `Block ${item.blockName}`, item.gateName].filter(Boolean).join(" · ") || "No location detail"}</p></div><Badge variant="secondary">{item.ticketCategory.displayName}</Badge></div>
                   <p className="mt-1 text-xs text-muted-foreground">{item.match.title}</p>
+                  <div className="mt-2 flex gap-1"><Badge variant={item.ticketPurpose === "COMPLIMENTARY" ? "secondary" : "default"}>{item.ticketPurpose === "COMPLIMENTARY" ? "Complimentary" : "Purchase"}</Badge>{item.pricingUnit === "PER_SUITE" && <Badge variant="outline">Per suite</Badge>}</div>
                   <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
                     <div><dt className="text-xs text-muted-foreground">Total</dt><dd className="font-bold tabular-nums">{formatNumber(item.totalQuantity)}</dd></div>
                     <div><dt className="text-xs text-muted-foreground">Available</dt><dd className="font-bold tabular-nums text-green-700 dark:text-green-400">{formatNumber(item.availableQuantity)}</dd></div>
@@ -375,7 +386,7 @@ export default function InventoryPage() {
                             {[item.blockName && `Block ${item.blockName}`, item.gateName].filter(Boolean).join(" · ") || "Location details not specified"}
                           </div>
                         </TableCell>
-                        <TableCell><Badge variant="outline">{item.ticketFormat}</Badge></TableCell>
+                        <TableCell><Badge variant="outline">{item.ticketFormat}</Badge><div className="mt-1"><Badge variant={item.ticketPurpose === "COMPLIMENTARY" ? "secondary" : "default"}>{item.ticketPurpose === "COMPLIMENTARY" ? "Complimentary" : "Purchase"}</Badge></div>{item.pricingUnit === "PER_SUITE" && <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">Per suite</p>}</TableCell>
                         <TableCell className="text-right tabular-nums">{item.faceValue === null ? "—" : formatCurrency(item.faceValue)}</TableCell>
                         <TableCell className="text-right font-medium tabular-nums">{formatNumber(item.totalQuantity)}</TableCell>
                         <TableCell className="text-right font-medium tabular-nums text-green-700 dark:text-green-400">{formatNumber(item.availableQuantity)}</TableCell>
@@ -412,7 +423,9 @@ export default function InventoryPage() {
               <div className="space-y-2"><Label htmlFor="edit-seat-start">Seat start</Label><Input id="edit-seat-start" type="number" min={1} value={editForm.seatStart} onChange={(event) => setEditForm({ ...editForm, seatStart: event.target.value })} disabled={editSaving} /></div>
               <div className="space-y-2"><Label htmlFor="edit-seat-end">Seat end</Label><Input id="edit-seat-end" type="number" min={1} value={editForm.seatEnd} onChange={(event) => setEditForm({ ...editForm, seatEnd: event.target.value })} disabled={editSaving} /></div>
               <div className="space-y-2"><Label htmlFor="edit-format">Ticket format</Label><select id="edit-format" className={selectClassName} value={editForm.ticketFormat} onChange={(event) => setEditForm({ ...editForm, ticketFormat: event.target.value })} disabled={editSaving}><option value="PHYSICAL">Physical</option><option value="DIGITAL">Digital</option><option value="BOTH">Both</option></select></div>
-              <div className="space-y-2"><Label htmlFor="edit-value">Face value (₹)</Label><Input id="edit-value" inputMode="decimal" value={editForm.faceValue} onChange={(event) => setEditForm({ ...editForm, faceValue: event.target.value })} disabled={editSaving} /></div>
+              <div className="space-y-2"><Label htmlFor="edit-purpose">Purpose</Label><select id="edit-purpose" className={selectClassName} value={editForm.ticketPurpose} onChange={(event) => setEditForm({ ...editForm, ticketPurpose: event.target.value })} disabled={editSaving}><option value="COMPLIMENTARY">Complimentary (GST set-off)</option><option value="PURCHASE">Purchase</option></select></div>
+              <div className="space-y-2"><Label htmlFor="edit-unit">Pricing unit</Label><select id="edit-unit" className={selectClassName} value={editForm.pricingUnit} onChange={(event) => setEditForm({ ...editForm, pricingUnit: event.target.value })} disabled={editSaving}><option value="PER_SEAT">Per seat</option><option value="PER_SUITE">Per suite (whole box)</option></select></div>
+              <div className="space-y-2"><Label htmlFor="edit-value">Face value (₹{editForm.pricingUnit === "PER_SUITE" ? " per suite" : " per seat"})</Label><Input id="edit-value" inputMode="decimal" value={editForm.faceValue} onChange={(event) => setEditForm({ ...editForm, faceValue: event.target.value })} disabled={editSaving} /></div>
               <div className="space-y-2"><Label htmlFor="edit-total">Total quantity</Label><Input id="edit-total" type="number" min={0} required value={editForm.totalQuantity} onChange={(event) => setEditForm({ ...editForm, totalQuantity: event.target.value })} disabled={editSaving} /></div>
               <div className="space-y-2 sm:col-span-2"><Label htmlFor="edit-notes">Notes</Label><Input id="edit-notes" maxLength={2000} value={editForm.notes} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} disabled={editSaving} /></div>
             </div>
@@ -432,7 +445,9 @@ export default function InventoryPage() {
               <div className="space-y-2"><Label htmlFor="pool-block">Block</Label><Input id="pool-block" maxLength={100} value={createForm.blockName} onChange={(event) => setCreateForm({ ...createForm, blockName: event.target.value })} /></div>
               <div className="space-y-2"><Label htmlFor="pool-gate">Gate</Label><Input id="pool-gate" maxLength={100} value={createForm.gateName} onChange={(event) => setCreateForm({ ...createForm, gateName: event.target.value })} /></div>
               <div className="space-y-2"><Label htmlFor="pool-format">Ticket format</Label><select id="pool-format" className={selectClassName} value={createForm.ticketFormat} onChange={(event) => setCreateForm({ ...createForm, ticketFormat: event.target.value })}><option value="PHYSICAL">Physical</option><option value="DIGITAL">Digital</option><option value="BOTH">Both</option></select></div>
-              <div className="space-y-2"><Label htmlFor="pool-value">Face value (₹)</Label><Input id="pool-value" inputMode="decimal" value={createForm.faceValue} onChange={(event) => setCreateForm({ ...createForm, faceValue: event.target.value })} /></div>
+              <div className="space-y-2"><Label htmlFor="pool-purpose">Purpose</Label><select id="pool-purpose" className={selectClassName} value={createForm.ticketPurpose} onChange={(event) => setCreateForm({ ...createForm, ticketPurpose: event.target.value })}><option value="COMPLIMENTARY">Complimentary (GST set-off)</option><option value="PURCHASE">Purchase</option></select></div>
+              <div className="space-y-2"><Label htmlFor="pool-unit">Pricing unit</Label><select id="pool-unit" className={selectClassName} value={createForm.pricingUnit} onChange={(event) => setCreateForm({ ...createForm, pricingUnit: event.target.value })}><option value="PER_SEAT">Per seat</option><option value="PER_SUITE">Per suite (whole box)</option></select></div>
+              <div className="space-y-2"><Label htmlFor="pool-value">Face value (₹{createForm.pricingUnit === "PER_SUITE" ? " per suite" : " per seat"})</Label><Input id="pool-value" inputMode="decimal" placeholder={setoffDefault} value={createForm.faceValue} onChange={(event) => setCreateForm({ ...createForm, faceValue: event.target.value })} /></div>
               <div className="space-y-2"><Label htmlFor="pool-total">Total quantity</Label><Input id="pool-total" type="number" min={1} required value={createForm.totalQuantity} onChange={(event) => setCreateForm({ ...createForm, totalQuantity: event.target.value })} /></div>
             </div>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={createSaving}>Cancel</Button><Button type="submit" disabled={createSaving}>{createSaving ? "Creating…" : "Create pool"}</Button></DialogFooter>

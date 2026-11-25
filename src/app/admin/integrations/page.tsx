@@ -38,6 +38,12 @@ const fields: { section: string; icon: React.ReactNode; description: string; fie
     ],
   },
   {
+    section: "Pricing defaults", icon: <Plug className="h-5 w-5" />, description: "Default face value pre-filled for complimentary tickets. This is the GST set-off amount and is always editable — never hardcoded.",
+    fields: [
+      { key: "pricing.complimentary_setoff_per_ticket", label: "Complimentary set-off per ticket (₹)", placeholder: "499" },
+    ],
+  },
+  {
     section: "District by Zomato", icon: <Webhook className="h-5 w-5" />, description: "Partner webhook for real-time ticket sales. Dry-run until live is enabled.",
     fields: [
       { key: "integration.district.webhook_secret", label: "Webhook shared secret", type: "password", placeholder: "Leave blank to keep current" },

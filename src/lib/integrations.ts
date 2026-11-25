@@ -11,6 +11,7 @@ export const INTEGRATION_KEYS = [
   'integration.email.enabled', 'integration.sms.enabled', 'integration.whatsapp.enabled',
   'integration.twilio.account_sid', 'integration.twilio.auth_token', 'integration.twilio.from',
   'integration.district.webhook_secret', 'integration.district.live',
+  'pricing.complimentary_setoff_per_ticket',
 ] as const
 
 export type IntegrationConfig = Record<string, string>
