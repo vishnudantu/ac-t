@@ -1,3 +1,4 @@
+import { purposeAllocations, purposeBalances } from '@/lib/purpose-balances'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -33,7 +34,7 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
   const id = z.string().min(1).max(250).parse((await context.params).id)
   const data = updateSchema.parse(await request.json())
   const pool = await prisma.$transaction(async (tx) => {
-    const current = await tx.inventoryPool.findUnique({ where: { id } })
+    const current = await tx.inventoryPool.findUnique({ where: { id }, include: { allocations: purposeAllocations } })
     if (!current) return null
     const purpose = data.ticketPurpose ?? current.ticketPurpose
     if (purpose !== current.ticketPurpose && (current.allocatedQuantity || current.issuedQuantity || current.reservedQuantity)) {
@@ -46,6 +47,13 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
       || complimentary !== current.complimentaryQuantity || purchase !== current.purchaseQuantity
     if (stockChanged && purpose === 'MIXED' && complimentary + purchase !== total) {
       throw new ApiError(422, 'The complimentary and purchase quantities must add up to total stock')
+    }
+    if (stockChanged && current.ticketPurpose === 'MIXED' && purpose === 'MIXED') {
+      const balance = purposeBalances(current)
+      if (complimentary < current.complimentaryQuantity - balance.complimentaryAvailable ||
+          purchase < current.purchaseQuantity - balance.purchaseAvailable) {
+        throw new ApiError(409, 'The revised split would remove committed or unavailable tickets')
+      }
     }
     const delta = total - current.totalQuantity
     if (delta < -current.availableQuantity) {

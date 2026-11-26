@@ -15,6 +15,7 @@ const prismaMock = {
   ticketIssuance: { count: jest.fn() },
   roleAssignment: { updateMany: jest.fn(), create: jest.fn() },
   role: { findUnique: jest.fn() },
+  systemSetting: { deleteMany: jest.fn() },
   sessionToken: { deleteMany: jest.fn() },
   auditEvent: { create: jest.fn(), count: jest.fn() },
   $transaction: jest.fn(),

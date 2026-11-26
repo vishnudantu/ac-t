@@ -68,6 +68,7 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
     revising ? quantities[item.id] ?? item.requestedQuantity
       : isFullApproval ? item.requestedQuantity : quantities[item.id] ?? item.approvedQuantity,
   ]))
+  const needsRemarks = revising || !isApproval || !step.quickApproval
   const submitLabel = revising ? "Save revision" : titles[action]
 
   function changeRevisionMode() {
@@ -82,7 +83,7 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!step) return
-    if (!remarks.trim()) return setError(revising ? "A revision reason is required." : "Remarks are required for this decision.")
+    if (needsRemarks && !remarks.trim()) return setError(revising ? "A revision reason is required." : "Remarks are required for this decision.")
     if (!revising && quantityError) return setError(quantityError)
     setSubmitting(true)
     setError(null)
@@ -175,8 +176,8 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
             </fieldset>
           )}
           <div className="space-y-2">
-            <Label htmlFor="decision-remarks">{revising ? "Revision reason" : "Remarks"} <span className="text-destructive" aria-hidden="true">*</span></Label>
-            <Textarea id="decision-remarks" required maxLength={2000} rows={3} value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Record the basis for this decision" />
+            <Label htmlFor="decision-remarks">{revising ? "Revision reason" : needsRemarks ? "Remarks" : "Remarks (optional)"} {needsRemarks && <span className="text-destructive" aria-hidden="true">*</span>}</Label>
+            <Textarea id="decision-remarks" required={needsRemarks} maxLength={2000} rows={3} value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Record the basis for this decision" />
           </div>
           {!revising && <div className="space-y-2">
             <Label htmlFor="decision-confidential">Confidential remarks <span className="font-normal text-muted-foreground">(optional)</span></Label>

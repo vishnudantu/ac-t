@@ -53,14 +53,17 @@ export interface IssuableAllocation {
   voidQuantity: number
 }
 
-export const approvalActionSchema = z.object({
+export const buildApprovalActionSchema = (quickApproval: boolean) => z.object({
   stepId: id,
   action: z.enum(['APPROVE', 'PARTIAL', 'REJECT', 'RETURN']),
   requestVersion: z.number().int().positive().optional(),
-  remarks,
+  remarks: quickApproval ? z.string().trim().max(2000).default('') : remarks,
   confidentialRemarks: optionalText,
   items: z.array(z.object({ requestItemId: id, approvedQuantity }).strict()).optional(),
 }).strict().superRefine((input, context) => {
+  if (quickApproval && !input.remarks && (!input.requestVersion || !['APPROVE', 'PARTIAL'].includes(input.action))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['remarks'], message: 'Only versioned approvals can omit remarks' })
+  }
   if ((input.action === 'APPROVE' || input.action === 'PARTIAL') && !input.items?.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'At least one approval item is required' })
   }
@@ -71,6 +74,8 @@ export const approvalActionSchema = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'Duplicate request items are not allowed' })
   }
 })
+
+export const approvalActionSchema = buildApprovalActionSchema(false)
 
 export const approvalRevisionSchema = z.object({
   stepId: id,

@@ -85,6 +85,7 @@ export const inventorySchema = z.object({
   ticketFormat: z.string(),
   ticketPurpose: z.string().optional().default('COMPLIMENTARY'),
   complimentaryQuantity: z.number().optional().default(0),
+  balances: z.object({ complimentaryAvailable: z.number(), purchaseAvailable: z.number(), complimentaryIssued: z.number(), purchaseIssued: z.number() }).optional(),
   purchaseQuantity: z.number().optional().default(0),
   pricingUnit: z.string().optional().default('PER_SEAT'),
   faceValue: z.union([z.string(), z.number()]).nullable(),
@@ -180,6 +181,7 @@ export const quotasResponseSchema = z.object({
     complimentary: z.number(),
     purchase: z.number(),
     unclassified: z.number(),
+    complimentaryAvailable: z.number(), purchaseAvailable: z.number(), complimentaryIssued: z.number(), purchaseIssued: z.number(),
   })).nullable(),
 })
 export const allocationsResponseSchema = z.object({

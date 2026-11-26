@@ -1,3 +1,4 @@
+import { godModeUser, setGodMode } from '@/lib/god-mode'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -7,6 +8,7 @@ import { withApiHandler } from '@/lib/api'
 interface Context { params: Promise<{ id: string }> }
 
 const userUpdateSchema = z.object({
+  godMode: z.boolean().optional(),
   fullName: z.string().trim().min(2).max(150).optional(),
   designation: z.string().trim().max(150).nullish(),
   department: z.string().trim().max(150).nullish(),
@@ -18,13 +20,16 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
   if (!context) return NextResponse.json({ error: 'User ID required' }, { status: 400 })
   if (!hasPermission(session.permissions, 'users:write')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const id = z.string().min(1).max(200).parse((await context.params).id)
-  const { roleId, ...data } = userUpdateSchema.parse(await request.json())
+  const { roleId, godMode, ...data } = userUpdateSchema.parse(await request.json())
+  if (godMode !== undefined && !hasPermission(session.permissions, 'users:assign_roles')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const current = await prisma.user.findUnique({ where: { id }, select: { id: true, fullName: true, isActive: true } })
   if (!current) return NextResponse.json({ error: 'User not found' }, { status: 404 })
   if (id === session.userId && data.isActive === false) {
     return NextResponse.json({ error: 'You cannot deactivate your own account' }, { status: 400 })
   }
   const user = await prisma.$transaction(async (tx) => {
+    const priorMode = godMode === undefined ? undefined : await godModeUser(tx) === id
+    if (godMode !== undefined) await setGodMode(tx, id, godMode)
     if (roleId) {
       if (!hasPermission(session.permissions, 'users:assign_roles')) throw new Error('You cannot assign roles')
       const role = await tx.role.findUnique({ where: { id: roleId }, select: { id: true, isActive: true } })
@@ -38,9 +43,9 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
     }
     await tx.auditEvent.create({ data: {
       userId: session.userId, entityType: 'USER', entityId: id, action: 'UPDATE',
-      oldValues: JSON.stringify({ fullName: current.fullName, isActive: current.isActive }),
-      newValues: JSON.stringify({ fullName: updated.fullName, isActive: updated.isActive }),
-      changedFields: [...Object.keys(data), ...(roleId ? ['roleId'] : [])],
+      oldValues: JSON.stringify({ fullName: current.fullName, isActive: current.isActive, godMode: priorMode }),
+      newValues: JSON.stringify({ fullName: updated.fullName, isActive: updated.isActive, godMode }),
+      changedFields: [...Object.keys(data), ...(godMode !== undefined ? ['godMode'] : []), ...(roleId ? ['roleId'] : [])],
     } })
     return updated
   })
@@ -66,6 +71,7 @@ export const DELETE = withApiHandler<Context>(async (_request, session, context)
   }
   await prisma.$transaction(async (tx) => {
     await tx.sessionToken.deleteMany({ where: { userId: id } })
+    await setGodMode(tx, id, false)
     await tx.user.delete({ where: { id } })
     await tx.auditEvent.create({ data: {
       userId: session.userId, entityType: 'USER', entityId: id, action: 'DELETE',

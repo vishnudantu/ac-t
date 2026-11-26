@@ -1,3 +1,4 @@
+import { godModeUser, setGodMode } from '@/lib/god-mode'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -5,6 +6,7 @@ import { hashPassword, hasPermission } from '@/lib/auth'
 import { withApiHandler } from '@/lib/api'
 
 const createUserSchema = z.object({
+  godMode: z.boolean().default(false),
   email: z.string().trim().email().max(320).transform((value) => value.toLowerCase()),
   fullName: z.string().trim().min(2).max(150),
   password: z.string().min(8).max(128),
@@ -15,7 +17,7 @@ const createUserSchema = z.object({
 
 export const GET = withApiHandler(async (_request: NextRequest, session) => {
   if (!hasPermission(session.permissions, 'users:read')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  const [users, roles] = await Promise.all([
+  const [users, roles, designatedUser] = await Promise.all([
     prisma.user.findMany({
       select: {
         id: true, email: true, fullName: true, designation: true, department: true,
@@ -24,13 +26,15 @@ export const GET = withApiHandler(async (_request: NextRequest, session) => {
       }, orderBy: { fullName: 'asc' }, take: 200,
     }),
     prisma.role.findMany({ where: { isActive: true }, select: { id: true, name: true, displayName: true }, orderBy: { displayName: 'asc' } }),
+    godModeUser(prisma),
   ])
-  return NextResponse.json({ success: true, users, roles })
+  return NextResponse.json({ success: true, users: users.map(user => ({ ...user, godMode: user.id === designatedUser })), roles })
 })
 
 export const POST = withApiHandler(async (request: NextRequest, session) => {
   if (!hasPermission(session.permissions, ['users:write', 'users:assign_roles'])) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const data = createUserSchema.parse(await request.json())
+  if (data.godMode && (!hasPermission(session.permissions, 'users:assign_roles') || !hasPermission(session.permissions, 'users:write'))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const user = await prisma.$transaction(async (tx) => {
     const role = await tx.role.findUnique({ where: { id: data.roleId }, select: { id: true, isActive: true } })
     if (!role?.isActive) throw new Error('Select an active role')
@@ -39,9 +43,10 @@ export const POST = withApiHandler(async (request: NextRequest, session) => {
       designation: data.designation, department: data.department,
       roleAssignments: { create: { roleId: data.roleId, assignedBy: session.userId, scope: 'GLOBAL' } },
     }, select: { id: true, email: true, fullName: true } })
+    if (data.godMode) await setGodMode(tx, created.id, true)
     await tx.auditEvent.create({ data: {
       userId: session.userId, entityType: 'USER', entityId: created.id, action: 'CREATE',
-      newValues: JSON.stringify({ email: data.email, fullName: data.fullName, roleId: data.roleId }), changedFields: ['email', 'fullName', 'roleId'],
+      newValues: JSON.stringify({ email: data.email, fullName: data.fullName, roleId: data.roleId, godMode: data.godMode }), changedFields: ['email', 'fullName', 'roleId', 'godMode'],
     } })
     return created
   })
