@@ -43,7 +43,7 @@ async function createFixture(stock = 10) {
     title: 'Test match ' + key, format: 'T20', matchDate: new Date(Date.now() + 86_400_000), startTime: '10:00',
     venue: { create: { name: 'Test venue ' + key, shortName: 'Test', city: 'Test', state: 'Test' } },
   } })
-  const category = await prisma.ticketCategory.create({ data: { matchId: match.id, name: 'pavilion', displayName: 'Pavilion' } })
+  const category = await prisma.ticketCategory.create({ data: { matchId: match.id, name: 'suite-5', displayName: 'Suite-5' } })
   const quota = await prisma.quotaPool.create({ data: {
     matchId: match.id, name: 'test-quota', displayName: 'Test quota', totalAllocation: 10,
     quotaAllocations: { create: { ticketCategoryId: category.id, allocatedQuantity: 10 } },
@@ -53,7 +53,7 @@ async function createFixture(stock = 10) {
     organisation: { create: { name: 'Test organisation ' + key, category: 'OTHER', quotaPoolId: quota.id } },
   } })
   const pool = await prisma.inventoryPool.create({ data: {
-    matchId: match.id, ticketCategoryId: category.id, standName: 'East', totalQuantity: stock, availableQuantity: stock,
+    matchId: match.id, ticketCategoryId: category.id, standName: 'Suite-5', totalQuantity: stock, availableQuantity: stock,
   } })
   await prisma.approvalWorkflow.create({ data: {
     matchId: match.id, name: 'Test workflow', isDefault: true,
@@ -66,10 +66,10 @@ type Fixture = Awaited<ReturnType<typeof createFixture>>
 
 async function submitRequest(page: Page, fixture: Fixture, quantity = 5) {
   await page.goto('/requests/new')
-  await page.getByLabel('Match').selectOption(fixture.match.id)
-  await page.getByLabel(/^Requester\b/).selectOption(fixture.requester.id)
-  await page.getByLabel('Category 1').selectOption(fixture.category.id)
-  await page.getByLabel('Quantity').fill(String(quantity))
+  await page.getByRole('combobox', { name: /^Match\s*\*?$/ }).selectOption(fixture.match.id)
+  await page.getByRole('combobox', { name: /^Requester\s*\*?$/ }).selectOption(fixture.requester.id)
+  await page.getByRole('combobox', { name: /^Category 1\s*\*?$/ }).selectOption(fixture.category.id)
+  await page.getByRole('spinbutton', { name: /^Quantity\s*\*?$/ }).fill(String(quantity))
   await page.getByRole('button', { name: 'Submit request' }).click()
   await expect(page).toHaveURL(/\/requests\/(?!new)[^/?]+$/)
   const id = new URL(page.url()).pathname.split('/').pop()!
@@ -81,7 +81,7 @@ async function decide(page: Page, requestNumber: string, requestedQuantity = 5) 
   await page.getByLabel('Filter approval steps on this page').fill(requestNumber)
   await page.getByRole('button', { name: 'Approve', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Approve request' })
-  const quantity = dialog.getByRole('spinbutton', { name: 'Pavilion' })
+  const quantity = dialog.getByRole('spinbutton', { name: 'Suite-5' })
   await expect(quantity).toHaveValue(String(requestedQuantity))
   await expect(quantity).not.toBeEditable()
   await dialog.getByLabel(/^Remarks\b/).fill('Verified by the browser test')
@@ -186,10 +186,16 @@ test('revises a complimentary request to purchase before approving 25 eligible t
   await page.goto('/approvals')
   await page.getByLabel('Filter approval steps on this page').fill(original.requestNumber)
   await page.getByRole('button', { name: 'Approve', exact: true }).click()
+  await expect(page.getByText('Category stock before stand and quota checks: 0 Complimentary / 25 Purchase')).toBeVisible()
   await page.getByRole('button', { name: 'Revise request' }).click()
   const dialog = page.getByRole('dialog', { name: 'Revise requested tickets' })
-  await dialog.getByLabel('Revised ticket type').selectOption('PURCHASE')
-  await dialog.getByRole('spinbutton', { name: 'Pavilion' }).fill('25')
+  const types = dialog.getByRole('group', { name: 'Revised ticket type' })
+  await expect(types.getByRole('radio', { name: 'Complimentary' })).toBeChecked()
+  const purchase = types.getByRole('radio', { name: 'Purchase' })
+  await expect(purchase).toBeVisible()
+  await purchase.check()
+  await expect(purchase).toBeChecked()
+  await dialog.getByRole('spinbutton', { name: 'Suite-5' }).fill('25')
   await dialog.getByLabel(/^Revision reason/).fill('Confirmed purchase quantity')
   await dialog.getByRole('button', { name: 'Save revision' }).click()
   await expect(dialog).toBeHidden()
@@ -214,4 +220,26 @@ test('revises a complimentary request to purchase before approving 25 eligible t
     summary: { requested: 25, approved: 25, allocated: 25, issued: 0, available: 0, quotaConsumed: 0 },
     categories: [{ id: fixture.category.id, approved: 25, allocated: 25, issued: 0, available: 0 }],
   })
+
+  await page.goto('/inventory')
+  const poolRow = page.getByRole('row').filter({ hasText: fixture.match.title })
+  await expect(poolRow.getByText('Purchase', { exact: true })).toBeVisible()
+  await expect(poolRow.getByRole('cell')).toHaveText([
+    /Suite-5/, /Suite-5/, /Purchase/, /.*/, '25', '0', '25', '0', '0', '0 / 0',
+  ])
+
+  await page.goto('/quotas')
+  await page.getByRole('combobox', { name: 'Match', exact: true }).selectOption(fixture.match.id)
+  const purposeRow = page.getByRole('row').filter({ hasText: fixture.match.title })
+  await expect(purposeRow.getByRole('cell')).toHaveText([fixture.match.title, 'Suite-5', '0', '25', '0'])
+  const quotaTotals = page.getByRole('region', { name: 'Quota totals' })
+  for (const [label, value] of [['Total allocation', '10'], ['Consumed', '0'], ['Remaining', '10']]) {
+    await expect(quotaTotals.getByText(label, { exact: true }).locator('+ p')).toHaveText(value)
+  }
+
+  await page.goto('/reports')
+  await page.getByRole('combobox', { name: 'Match', exact: true }).selectOption(fixture.match.id)
+  const reportRow = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'Suite-5', exact: true }) })
+  await expect(reportRow.getByRole('cell')).toHaveText(['Suite-5', '25', '25', '25', '0', '0'])
+  await expect(page.getByText('0 of 10 tickets', { exact: true })).toBeVisible()
 })
