@@ -33,15 +33,15 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
   const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [availability, setAvailability] = useState<Record<string, { remaining: number; capacity: number; quotaRemaining?: number }>>({})
+  const [availability, setAvailability] = useState<Record<string, { remaining: number; capacity: number; quotaRemaining?: number }> /* mapped from API */>({})
 
   useEffect(() => {
     if (!step || !open) return
     fetch(`/api/availability?matchId=${encodeURIComponent(step.request.match.id)}`, { cache: "no-store" })
       .then((response) => response.json())
       .then((body: { categories?: { id: string; remaining: number; capacity: number; quotaRemaining?: number }[] }) => {
-        const map: Record<string, { remaining: number; capacity: number }> = {}
-        for (const row of body.categories || []) map[row.id] = { remaining: row.remaining, capacity: row.capacity }
+        const map: Record<string, { remaining: number; capacity: number; quotaRemaining?: number }> = {}
+        for (const row of body.categories || []) map[row.id] = { remaining: row.remaining, capacity: row.capacity, quotaRemaining: row.quotaRemaining }
         setAvailability(map)
       })
       .catch(() => setAvailability({}))
