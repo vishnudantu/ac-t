@@ -24,7 +24,7 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       id: true, name: true, displayName: true,
       requestItems: { select: { requestedQuantity: true, approvedQuantity: true, allocatedQuantity: true, issuedQuantity: true } },
       inventoryPools: { select: { availableQuantity: true } },
-    }, take: 100, orderBy: { sortOrder: 'asc' },
+    }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
   })
   const pools = await prisma.inventoryPool.findMany({
     where,

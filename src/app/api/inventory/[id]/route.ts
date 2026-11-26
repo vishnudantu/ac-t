@@ -75,25 +75,29 @@ export const DELETE = withApiHandler<Context>(async (_request, session, context)
   if (!context) return NextResponse.json({ error: 'Inventory ID required' }, { status: 400 })
   if (!hasRole(session.roles, 'SUPER_ADMIN')) return NextResponse.json({ error: 'Only a super administrator can delete records' }, { status: 403 })
   const id = z.string().min(1).max(250).parse((await context.params).id)
-  const current = await prisma.inventoryPool.findUnique({
-    where: { id },
-    select: { id: true, matchId: true, standName: true, blockName: true, totalQuantity: true },
-  })
-  if (!current) return NextResponse.json({ error: 'Inventory not found' }, { status: 404 })
-  const [allocations, serials] = await Promise.all([
-    prisma.allocationItem.count({ where: { inventoryPoolId: id } }),
-    prisma.ticketSerial.count({ where: { inventoryPoolId: id } }),
-  ])
-  if (allocations + serials > 0) {
-    return NextResponse.json({ error: 'This pool has allocation or serial history and cannot be deleted. Adjust its quantity to zero instead.' }, { status: 409 })
-  }
   await prisma.$transaction(async (tx) => {
+    // Lock the parent before checking its history. Concurrent inserts that
+    // reference the pool must finish first or wait for this transaction.
+    await tx.$queryRaw`SELECT "id" FROM "InventoryPool" WHERE "id" = ${id} FOR UPDATE`
+    const current = await tx.inventoryPool.findUnique({
+      where: { id },
+      select: {
+        id: true, matchId: true, standName: true, blockName: true, totalQuantity: true,
+        reservedQuantity: true, allocatedQuantity: true, issuedQuantity: true, returnedQuantity: true, voidQuantity: true,
+        _count: { select: { allocations: true, ticketSerials: true } },
+      },
+    })
+    if (!current) throw new ApiError(404, 'Inventory not found')
+    if (current._count.allocations || current._count.ticketSerials || current.reservedQuantity
+      || current.allocatedQuantity || current.issuedQuantity || current.returnedQuantity || current.voidQuantity) {
+      throw new ApiError(409, 'This pool has inventory history and cannot be deleted.')
+    }
     await tx.inventoryPool.delete({ where: { id } })
     await tx.match.update({ where: { id: current.matchId }, data: { totalInventory: { decrement: current.totalQuantity } } })
     await tx.auditEvent.create({ data: {
       userId: session.userId, matchId: current.matchId, entityType: 'INVENTORY', entityId: id, action: 'DELETE',
       oldValues: JSON.stringify(current), changedFields: ['id', 'totalQuantity'],
     } })
-  })
+  }, { isolationLevel: "ReadCommitted" })
   return NextResponse.json({ success: true })
 })

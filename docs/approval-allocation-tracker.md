@@ -29,3 +29,10 @@
 | District integration | Dry-run and sales use available, unrestricted purchase stock. Sales claim stock transactionally. Refunds that cannot be safely traced require reconciliation. | Validate the real provider payload, retries, and refund-to-sale mapping before relying on live integration. |
 
 Role-based screens, match replication, imports and exports, notification delivery, and historical reconciliation still need a module-by-module browser and integration pass. Existing automated coverage helps detect regressions but does not establish production parity.
+
+### Follow-up safeguards
+
+- Changing ticket lines, ticket type, or preferred stand on a submitted request restarts its approval chain. Assignee changes require assignment permission and request edits check the version before committing.
+- Inventory deletion takes a row lock before checking allocation, serial, and stock history. Existing stock movements remain protected even when a pool has no internal allocation rows.
+- Reports include all categories in the selected scope. The match picker still fetches up to 100 matches.
+- PostgreSQL verification of concurrent edits and deletes remains pending. The mocked route tests verify the guards and response contract.
