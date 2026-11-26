@@ -51,7 +51,7 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       unapproved: totals.requested - totals.approved,
       unallocated: totals.approved - totals.allocated,
       unissued: totals.allocated - totals.issued,
-      remainingStock: inventory.total - inventory.issued - inventory.void,
+      remainingStock: inventory.available,
     }
     return {
       id: match.id, title: match.title, matchDate: match.matchDate,

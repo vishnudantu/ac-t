@@ -85,7 +85,7 @@ export default function ReconciliationPage() {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
                 <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Inventory total</p><p className="mt-1 text-lg font-bold tabular-nums">{formatNumber(row.inventory.total)}</p></div>
                 <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Available now</p><p className="mt-1 text-lg font-bold tabular-nums">{formatNumber(row.inventory.available)}</p></div>
-                <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Remaining stock (after issued/void)</p><p className="mt-1 text-lg font-bold tabular-nums">{formatNumber(row.reconciliation.remainingStock)}</p></div>
+                <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Available stock</p><p className="mt-1 text-lg font-bold tabular-nums">{formatNumber(row.reconciliation.remainingStock)}</p></div>
                 <div className="rounded-md border p-3"><p className="text-xs text-muted-foreground">Quota consumed</p><p className="mt-1 text-lg font-bold tabular-nums">{formatNumber(row.quota.consumed)} / {formatNumber(row.quota.allocated)}</p></div>
               </div>
               <p className="text-xs text-muted-foreground">{Object.entries(row.requestsByStatus).map(([status, count]) => `${status.toLowerCase().replace('_', ' ')}: ${count}`).join(' · ') || 'No requests yet'}</p>

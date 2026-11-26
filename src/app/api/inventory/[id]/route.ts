@@ -35,9 +35,21 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
   const pool = await prisma.$transaction(async (tx) => {
     const current = await tx.inventoryPool.findUnique({ where: { id } })
     if (!current) return null
-    const delta = (data.totalQuantity ?? current.totalQuantity) - current.totalQuantity
+    const purpose = data.ticketPurpose ?? current.ticketPurpose
+    if (purpose !== current.ticketPurpose && (current.allocatedQuantity || current.issuedQuantity || current.reservedQuantity)) {
+      throw new ApiError(409, 'A pool with committed or issued tickets cannot change ticket purpose')
+    }
+    const total = data.totalQuantity ?? current.totalQuantity
+    const complimentary = data.complimentaryQuantity ?? current.complimentaryQuantity
+    const purchase = data.purchaseQuantity ?? current.purchaseQuantity
+    const stockChanged = purpose !== current.ticketPurpose || total !== current.totalQuantity
+      || complimentary !== current.complimentaryQuantity || purchase !== current.purchaseQuantity
+    if (stockChanged && purpose === 'MIXED' && complimentary + purchase !== total) {
+      throw new ApiError(422, 'The complimentary and purchase quantities must add up to total stock')
+    }
+    const delta = total - current.totalQuantity
     if (delta < -current.availableQuantity) {
-      throw new ApiError(409, 'Stock reduction exceeds this pool?s available quantity')
+      throw new ApiError(409, 'Stock reduction exceeds available stock in this pool')
     }
     const { adjustmentReason, ...changes } = data
     if (delta && !adjustmentReason) throw new ApiError(400, 'A reason is required to change stock quantity')

@@ -18,3 +18,14 @@
 - Approval delegation, amendments beyond reapproval, scoped role policy and escalation scheduling need further work. Issuance requests sent by older clients without an idempotency key retain their existing behavior.
 - The dashboard uses current pool counters. Existing pool discrepancies from earlier double deductions may remain visible. Historical drafts, balances and production records require a separately approved read-only review and any subsequent reconciliation requires explicit management approval.
 - This branch does not finish the broader matching, search, import/export, notification and reporting enhancements in the master document. Production release and migration approval remain separate.
+
+## Cross-module checks on the hotfix
+
+| Module | Verified locally | Still needs isolated workflow verification |
+| --- | --- | --- |
+| Requests, approvals, allocations and distribution | Lifecycle route tests and validation. Full approval always uses requested quantities. | Browser retest of the updated dialog, quota shortage, and concurrent allocation against PostgreSQL. |
+| Inventory and quota | Mixed-purpose writes require a balanced stock split. Committed or issued pools retain their purpose. Quota summaries use stored pool classification and totals across all matching quota pages. | Compare the same match and category in Inventory and Quota Management. Review legacy pool splits separately. |
+| Reports, Revenue and Reconciliation | Mixed issuance counts once. Revenue filters by match ID. Reconciliation uses stored available stock. | Compare issued and available quantities end to end. The financial reports do not infer a value for issuance with unverified purpose. |
+| District integration | Dry-run and sales use available, unrestricted purchase stock. Sales claim stock transactionally. Refunds that cannot be safely traced require reconciliation. | Validate the real provider payload, retries, and refund-to-sale mapping before relying on live integration. |
+
+Role-based screens, match replication, imports and exports, notification delivery, and historical reconciliation still need a module-by-module browser and integration pass. Existing automated coverage helps detect regressions but does not establish production parity.

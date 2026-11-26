@@ -151,6 +151,15 @@ describe('API boundary validation', () => {
     }).success).toBe(false)
   })
 
+  it('accepts a complete mixed-purpose split and rejects mismatched totals', () => {
+    const pool = {
+      matchId: 'match-1', ticketCategoryId: 'category-1', standName: 'East',
+      ticketPurpose: 'MIXED', totalQuantity: 10, complimentaryQuantity: 4, purchaseQuantity: 6,
+    }
+    expect(inventoryCreateSchema.safeParse(pool).success).toBe(true)
+    expect(inventoryCreateSchema.safeParse({ ...pool, purchaseQuantity: 5 }).success).toBe(false)
+  })
+
   it('accepts quota-backed inventory and restricts list filters', () => {
     expect(inventoryCreateSchema.parse({
       matchId: 'match-1', ticketCategoryId: 'category-1', standName: 'East', totalQuantity: 20,
