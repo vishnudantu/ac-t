@@ -56,6 +56,7 @@ export interface IssuableAllocation {
 export const approvalActionSchema = z.object({
   stepId: id,
   action: z.enum(['APPROVE', 'PARTIAL', 'REJECT', 'RETURN']),
+  requestVersion: z.number().int().positive().optional(),
   remarks,
   confidentialRemarks: optionalText,
   items: z.array(z.object({ requestItemId: id, approvedQuantity }).strict()).optional(),
@@ -70,6 +71,15 @@ export const approvalActionSchema = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'Duplicate request items are not allowed' })
   }
 })
+
+export const approvalRevisionSchema = z.object({
+  stepId: id,
+  action: z.literal('REVISE'),
+  requestVersion: z.number().int().positive(),
+  reason: z.string().trim().min(1, 'A revision reason is required').max(2000),
+  ticketType: z.enum(['COMPLIMENTARY', 'PURCHASE']),
+  items: z.array(z.object({ requestItemId: id, requestedQuantity: issueQuantity }).strict()).min(1).max(MAX_REQUEST_ITEMS),
+}).strict()
 
 export const approvalListQuerySchema = listQuery.extend({
   status: z.enum(['PENDING', 'IN_PROGRESS', 'all']).default('PENDING'),

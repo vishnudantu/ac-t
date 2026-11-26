@@ -63,7 +63,7 @@ export async function allocateFinalApproval(
       const poolNames = eligible.map((pool) => [pool.standName, pool.blockName].filter(Boolean).join(' / ')).join(', ')
       const quotaMessage = quota ? ` Quota ${quota.displayName} remaining: ${quotaRemaining}.` : ''
       throw new LifecycleRuleError(
-        `${category.displayName} (${poolNames || 'no eligible pools'}): requested ${item.requestedQuantity}, proposed ${approved}, available ${poolRemaining}, shortage ${approved - allocatable}.${quotaMessage}`,
+        `${category.displayName} (${poolNames || 'no eligible ' + purpose.toLowerCase() + ' pools'}): requested ${item.requestedQuantity}, proposed ${approved}, available ${poolRemaining}, shortage ${approved - allocatable}.${quotaMessage}`,
         409,
       )
     }
