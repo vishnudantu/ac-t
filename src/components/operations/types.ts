@@ -169,7 +169,19 @@ export const inventoryResponseSchema = z.object({
   total: z.number(),
   summary: inventorySummarySchema,
 })
-export const quotasResponseSchema = z.object({ quotas: z.array(quotaSchema), total: z.number() })
+export const quotasResponseSchema = z.object({
+  quotas: z.array(quotaSchema),
+  total: z.number(),
+  totals: z.object({ allocation: z.number(), consumed: z.number() }),
+  inventoryByCategory: z.array(z.object({
+    categoryId: z.string(),
+    category: z.string(),
+    match: z.string(),
+    complimentary: z.number(),
+    purchase: z.number(),
+    unclassified: z.number(),
+  })).nullable(),
+})
 export const allocationsResponseSchema = z.object({
   allocations: z.array(allocationSchema),
   total: z.number(),

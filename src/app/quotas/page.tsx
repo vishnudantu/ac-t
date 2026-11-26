@@ -203,10 +203,7 @@ export default function QuotasPage() {
       ...quota.quotaAllocations.map((allocation) => allocation.ticketCategory.displayName)]
       .some((value) => value?.toLowerCase().includes(query)),
   )
-  const totals = quotas.reduce((result, quota) => ({
-    allocation: result.allocation + quota.totalAllocation,
-    consumed: result.consumed + quota.consumedQuantity,
-  }), { allocation: 0, consumed: 0 })
+
 
   return (
     <MainLayout>
@@ -225,69 +222,49 @@ export default function QuotasPage() {
               <p className="text-xs text-muted-foreground">Current page · {quotas.length} pools{data.total > quotas.length ? ` of ${data.total}` : ""}</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
-              <MetricCard label="Total allocation" value={totals.allocation} icon={Shield} tone="blue" />
-              <MetricCard label="Consumed" value={totals.consumed} icon={CheckCircle2} tone="violet" />
-              <MetricCard label="Remaining" value={Math.max(0, totals.allocation - totals.consumed)} icon={Layers3} tone="green" />
+              <MetricCard label="Total allocation" value={data.totals.allocation} icon={Shield} tone="blue" />
+              <MetricCard label="Consumed" value={data.totals.consumed} icon={CheckCircle2} tone="violet" />
+              <MetricCard label="Remaining" value={Math.max(0, data.totals.allocation - data.totals.consumed)} icon={Layers3} tone="green" />
             </div>
           </section>
         )}
-        {data && (
-          <section aria-labelledby="complimentary-tickets">
+        {data?.inventoryByCategory && (
+          <section aria-labelledby="ticket-inventory-by-purpose">
             <Card className="shadow-none">
               <CardHeader className="p-4">
-                <CardTitle className="flex items-center gap-2">
+                <CardTitle id="ticket-inventory-by-purpose" className="flex items-center gap-2">
                   <BarChart3 className="h-4 w-4" />
-                  Complimentary tickets by category
+                  Ticket inventory by purpose
                 </CardTitle>
-                <CardDescription>Breakdown of complimentary allocations across all matches</CardDescription>
+                <CardDescription>Total stock for {matchId === "all" ? "all matches" : "the selected match"}</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Match</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead className="text-right">Complimentary</TableHead>
+                      <TableHead className="text-right">Purchase</TableHead>
+                      <TableHead className="text-right">Unclassified</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.inventoryByCategory.length === 0 ? (
                       <TableRow>
-                        <TableHead>Category</TableHead>
-                        <TableHead className="text-right">Total Complimentary</TableHead>
-                        <TableHead className="text-right">Used</TableHead>
-                        <TableHead className="text-right">Remaining</TableHead>
+                        <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">No inventory pools found</TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(() => {
-                        const complimentaryByCategory = new Map<string, { allocated: number; consumed: number }>()
-                        for (const quota of quotas) {
-                          for (const alloc of quota.quotaAllocations) {
-                            const catName = alloc.ticketCategory.displayName
-                            const existing = complimentaryByCategory.get(catName) || { allocated: 0, consumed: 0 }
-                            complimentaryByCategory.set(catName, {
-                              allocated: existing.allocated + alloc.allocatedQuantity,
-                              consumed: existing.consumed + alloc.consumedQuantity
-                            })
-                          }
-                        }
-                        const sortedCategories = Array.from(complimentaryByCategory.entries())
-                          .sort((a, b) => b[1].allocated - a[1].allocated)
-
-                        return sortedCategories.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
-                              No complimentary allocations recorded
-                            </TableCell>
-                          </TableRow>
-                        ) : sortedCategories.map(([name, data]) => (
-                          <TableRow key={name}>
-                            <TableCell><Badge variant="secondary">{name}</Badge></TableCell>
-                            <TableCell className="text-right tabular-nums">{formatNumber(data.allocated)}</TableCell>
-                            <TableCell className="text-right tabular-nums">{formatNumber(data.consumed)}</TableCell>
-                            <TableCell className="text-right tabular-nums text-green-700 dark:text-green-400">
-                              {formatNumber(Math.max(0, data.allocated - data.consumed))}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      })()}
-                    </TableBody>
-                  </Table>
-                </div>
+                    ) : data.inventoryByCategory.map((row) => (
+                      <TableRow key={row.categoryId}>
+                        <TableCell>{row.match}</TableCell>
+                        <TableCell>{row.category}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(row.complimentary)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(row.purchase)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(row.unclassified)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
           </section>
