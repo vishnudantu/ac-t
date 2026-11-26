@@ -28,10 +28,12 @@ const priorities = ["LOW", "NORMAL", "HIGH", "PROTOCOL"] as const
 const requesterCategories = ["VIP", "OFFICIAL", "BCCI", "GOVERNMENT", "SPONSOR", "MEDIA", "MEMBER", "STAFF", "GENERAL"]
 const selectClassName = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 const requestSchema = z.object({ matchId: z.string().min(1, "Select a match"), source: z.enum(sources), priority: z.enum(priorities), sourceReference: z.string().trim().max(500), purpose: z.string().trim().max(2000), requiredDeliveryMethod: z.enum(["", "PHYSICAL", "DIGITAL", "BOTH"]), specialInstructions: z.string().trim().max(2000), ticketType: z.enum(["COMPLIMENTARY", "PURCHASE"]) })
-type RequestForm = z.infer<typeof requestSchema>
+type TicketPurpose = "PURCHASE" | "COMPLIMENTARY"
+type CategoryAvailability = { id: string; capacity: number; allocated: number; remaining: number; inventoryPurpose: TicketPurpose | null }
+type RequestForm = Omit<z.infer<typeof requestSchema>, "ticketType"> & { ticketType: TicketPurpose | "" }
 const requesterSchema = z.object({ fullName: z.string().trim().min(2, "Enter the requester’s full name"), mobileNumber: z.string().trim().regex(/^\+?[0-9][0-9\s-]{7,17}$/, "Enter a valid mobile number"), email: z.string().trim().email("Enter a valid email address").or(z.literal("")), designation: z.string().trim().max(150), organisationId: z.string(), organisationName: z.string().trim(), requesterCategory: z.string().min(1, "Select a requester category"), protocolLevel: z.string().regex(/^([0-9]|10)$/, "Protocol level must be between 0 and 10"), contactPreference: z.enum(["PHONE", "WHATSAPP", "EMAIL"]), specialInstructions: z.string().trim().max(2000) }).superRefine((data, context) => { if (!data.organisationId && data.organisationName.length < 2) context.addIssue({ code: z.ZodIssueCode.custom, path: ["organisationName"], message: "Select an organisation or enter a new organisation name" }) })
 type RequesterForm = z.infer<typeof requesterSchema>
-const initialRequest: RequestForm = { matchId: "", source: "IN_PERSON", priority: "NORMAL", sourceReference: "", purpose: "", requiredDeliveryMethod: "", specialInstructions: "", ticketType: "COMPLIMENTARY" }
+const initialRequest: RequestForm = { matchId: "", source: "IN_PERSON", priority: "NORMAL", sourceReference: "", purpose: "", requiredDeliveryMethod: "", specialInstructions: "", ticketType: "" }
 const initialRequester: RequesterForm = { fullName: "", mobileNumber: "", email: "", designation: "", organisationId: "", organisationName: "", requesterCategory: "", protocolLevel: "0", contactPreference: "PHONE", specialInstructions: "" }
 
 export default function NewRequestPage() {
@@ -50,7 +52,7 @@ function NewRequestForm() {
   const [requesters, setRequesters] = React.useState<RequesterOption[]>([])
   const [organisations, setOrganisations] = React.useState<OrganisationOption[]>([])
   const [categories, setCategories] = React.useState<CategoryOption[]>([])
-  const [availability, setAvailability] = React.useState<Record<string, { capacity: number; allocated: number; remaining: number }>>({})
+  const [availability, setAvailability] = React.useState<Record<string, CategoryAvailability>>({})
   const [lines, setLines] = React.useState<RequestLine[]>([{ key: "line-1", ticketCategoryId: "", requestedQuantity: "1", notes: "" }])
   const nextLine = React.useRef(2)
   const [loading, setLoading] = React.useState(true)
@@ -95,15 +97,16 @@ function NewRequestForm() {
 
   React.useEffect(() => {
     if (!requestForm.matchId) { setCategories([]); setAvailability({}); return }
-    fetch(`/api/availability?matchId=${encodeURIComponent(requestForm.matchId)}`, { cache: "no-store" })
-      .then((response) => response.json())
-      .then((body: { categories?: { id: string; capacity: number; allocated: number; remaining: number }[] }) => {
-        const map: Record<string, { capacity: number; allocated: number; remaining: number }> = {}
-        for (const row of body.categories || []) map[row.id] = { capacity: row.capacity, allocated: row.allocated, remaining: row.remaining }
-        setAvailability(map)
-      })
-      .catch(() => setAvailability({}))
     const controller = new AbortController()
+    setAvailability({})
+    fetch(`/api/availability?matchId=${encodeURIComponent(requestForm.matchId)}`, { cache: "no-store", signal: controller.signal })
+      .then((response) => response.json())
+      .then((body: { categories?: CategoryAvailability[] }) => {
+        const map: Record<string, CategoryAvailability> = {}
+        for (const row of body.categories || []) map[row.id] = row
+        if (!controller.signal.aborted) setAvailability(map)
+      })
+      .catch(() => { if (!controller.signal.aborted) setAvailability({}) })
     const loadCategories = async () => {
       setCategoriesLoading(true)
       setCategoryError("")
@@ -130,9 +133,14 @@ function NewRequestForm() {
   const updateLine = (key: string, changes: Partial<Omit<RequestLine, "key">>) => setLines((current) => current.map((line) => line.key === key ? { ...line, ...changes } : line))
   const addLine = () => { const key = `line-${nextLine.current}`; nextLine.current += 1; setLines((current) => [...current, { key, ticketCategoryId: "", requestedQuantity: "1", notes: "" }]) }
 
+  const purposes = lines.map(line => availability[line.ticketCategoryId]?.inventoryPurpose)
+  const inventoryPurpose = purposes.every(purpose => purpose === purposes[0]) ? purposes[0] : null
+  const ticketType = requestForm.ticketType || inventoryPurpose || ""
+
   const saveRequest = async (status: "DRAFT" | "SUBMITTED") => {
     setFormError("")
-    const parsedRequest = requestSchema.safeParse(requestForm)
+    if (!ticketType) { setFormError("Select the ticket categories and choose a ticket type if inventory has no single classification."); return }
+    const parsedRequest = requestSchema.safeParse({ ...requestForm, ticketType })
     if (!parsedRequest.success) { setFormError(parsedRequest.error.issues[0]?.message || "Check the request details"); return }
     if (requesterMode === "existing" && !requesterId) { setFormError("Select a requester or create a new requester"); return }
     const parsedRequester = requesterMode === "new" ? requesterSchema.safeParse(requesterForm) : null
@@ -188,10 +196,10 @@ function NewRequestForm() {
       {!sessionLoading && !canWrite ? <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertTitle>Access unavailable</AlertTitle><AlertDescription>Your account does not have permission to create requests.</AlertDescription></Alert> : loading ? <Loading label="Loading matches and requesters" /> : loadError ? <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertTitle>Could not prepare the request form</AlertTitle><AlertDescription className="flex flex-wrap items-center gap-3"><span>{loadError}</span><Button type="button" size="sm" variant="outline" onClick={() => setReloadKey((key) => key + 1)}>Try again</Button></AlertDescription></Alert> : <form onSubmit={(event) => { event.preventDefault(); void saveRequest("DRAFT") }} className="space-y-6">
         {formError && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertTitle>Request not saved</AlertTitle><AlertDescription>{formError}</AlertDescription></Alert>}
         <Card><CardHeader><CardTitle>Match and request details</CardTitle><CardDescription>Choose the event and tell us how the request was received.</CardDescription></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2 sm:col-span-2"><Label htmlFor="new-request-match">Match *</Label><select id="new-request-match" className={selectClassName} required value={requestForm.matchId} onChange={(event) => updateRequest("matchId", event.target.value)}><option value="">Select a match</option>{matches.map((match) => <option key={match.id} value={match.id}>{match.title} — {formatDate(match.matchDate)} ({match.venue.name})</option>)}</select>{matches.length === 0 && <p className="text-sm text-muted-foreground">No matches are available. A match must be configured before requesting tickets.</p>}</div>
+          <div className="space-y-2 sm:col-span-2"><Label htmlFor="new-request-match">Match *</Label><select id="new-request-match" className={selectClassName} required value={requestForm.matchId} onChange={(event) => setRequestForm({ ...requestForm, matchId: event.target.value, ticketType: "" })}><option value="">Select a match</option>{matches.map((match) => <option key={match.id} value={match.id}>{match.title} — {formatDate(match.matchDate)} ({match.venue.name})</option>)}</select>{matches.length === 0 && <p className="text-sm text-muted-foreground">No matches are available. A match must be configured before requesting tickets.</p>}</div>
           <Field id="new-request-source" label="Request source" required><select id="new-request-source" className={selectClassName} value={requestForm.source} onChange={(event) => updateRequest("source", event.target.value as RequestForm["source"])}>{sources.map((source) => <option key={source} value={source}>{formatStatus(source)}</option>)}</select></Field>
           <Field id="new-request-priority" label="Priority" required><select id="new-request-priority" className={selectClassName} value={requestForm.priority} onChange={(event) => updateRequest("priority", event.target.value as RequestForm["priority"])}>{priorities.map((priority) => <option key={priority} value={priority}>{formatStatus(priority)}</option>)}</select></Field>
-          <Field id="new-request-ticket-type" label="Ticket type" required><select id="new-request-ticket-type" className={selectClassName} value={requestForm.ticketType} onChange={(event) => updateRequest("ticketType", event.target.value as RequestForm["ticketType"])}><option value="COMPLIMENTARY">Complimentary</option><option value="PURCHASE">Purchase</option></select></Field>
+          <Field id="new-request-ticket-type" label="Ticket type" required><select id="new-request-ticket-type" className={selectClassName} value={requestForm.ticketType} onChange={(event) => updateRequest("ticketType", event.target.value as RequestForm["ticketType"])}><option value="">{inventoryPurpose ? `From inventory: ${formatStatus(inventoryPurpose)}` : "Choose a ticket type"}</option><option value="COMPLIMENTARY">Complimentary</option><option value="PURCHASE">Purchase</option></select></Field>
           <Field id="new-request-reference" label="Source reference"><Input id="new-request-reference" value={requestForm.sourceReference} onChange={(event) => updateRequest("sourceReference", event.target.value)} maxLength={500} placeholder="Letter, email or reference number" /></Field>
           <Field id="new-request-delivery" label="Required delivery method"><select id="new-request-delivery" className={selectClassName} value={requestForm.requiredDeliveryMethod} onChange={(event) => updateRequest("requiredDeliveryMethod", event.target.value as RequestForm["requiredDeliveryMethod"])}><option value="">No preference</option><option value="PHYSICAL">Physical</option><option value="DIGITAL">Digital</option><option value="BOTH">Both</option></select></Field>
         </CardContent></Card>

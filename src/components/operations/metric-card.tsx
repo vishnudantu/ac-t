@@ -25,7 +25,7 @@ export function MetricCard({ label, value, icon: Icon, description, tone = "defa
       <CardContent className="flex items-center justify-between gap-3 p-4">
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">{label}</p>
-          <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight">{formatNumber(value)}</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight">{typeof value === "number" ? formatNumber(value) : value}</p>
           {description && <p className="mt-1 text-xs leading-4 text-muted-foreground">{description}</p>}
         </div>
         <div className={cn("shrink-0 rounded-lg p-2.5", tones[tone])} aria-hidden="true">

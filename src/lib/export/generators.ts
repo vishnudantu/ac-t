@@ -1,3 +1,4 @@
+import { detailViews, readReportDetail } from '../report-detail'
 import ExcelJS from 'exceljs'
 import type { Prisma } from '@prisma/client'
 
@@ -150,7 +151,10 @@ export async function buildDataset(tx: Transaction, type: ExportType, matchId?: 
     case 'QUOTAS': return quotas(tx, matchId)
     case 'DISTRIBUTION': return distribution(tx, matchId, filters)
     case 'AUDIT': return audit(tx, matchId, filters)
-    case 'REPORTS': return reports(tx, matchId)
+    case 'REPORTS': {
+      const view = detailViews.find(value => value === filters.view)
+      return view ? readReportDetail(tx, view, matchId) : reports(tx, matchId)
+    }
   }
 }
 

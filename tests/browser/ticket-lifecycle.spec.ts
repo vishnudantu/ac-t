@@ -64,12 +64,15 @@ async function createFixture(stock = 10) {
 
 type Fixture = Awaited<ReturnType<typeof createFixture>>
 
-async function submitRequest(page: Page, fixture: Fixture, quantity = 5) {
+async function submitRequest(page: Page, fixture: Fixture, quantity = 5, explicitComplimentary = false) {
   await page.goto('/requests/new')
   await page.getByRole('combobox', { name: /^Match\s*\*?$/ }).selectOption(fixture.match.id)
   await page.getByRole('combobox', { name: /^Requester\s*\*?$/ }).selectOption(fixture.requester.id)
   await page.getByRole('combobox', { name: /^Category 1\s*\*?$/ }).selectOption(fixture.category.id)
   await page.getByRole('spinbutton', { name: /^Quantity\s*\*?$/ }).fill(String(quantity))
+  const type = page.getByRole('combobox', { name: /^Ticket type/ })
+  if (explicitComplimentary) await type.selectOption('COMPLIMENTARY')
+  else await expect(type.locator('option:checked')).toContainText('From inventory')
   await page.getByRole('button', { name: 'Submit request' }).click()
   await expect(page).toHaveURL(/\/requests\/(?!new)[^/?]+$/)
   const id = new URL(page.url()).pathname.split('/').pop()!
@@ -145,6 +148,22 @@ test('partial issuance leaves available stock and quota unchanged', async ({ pag
     totalIssued: 2, fulfilmentStatus: 'PARTIALLY_ISSUED',
   })
   await expectBalances(fixture, 5, 5, 2, 5)
+  await page.goto('/reports')
+  await page.getByRole('combobox', { name: 'Match', exact: true }).selectOption(fixture.match.id)
+  const view = page.getByRole('combobox', { name: 'Report', exact: true })
+  await view.selectOption('pools')
+  const pool = page.getByRole('row').filter({ hasText: fixture.match.title })
+  await expect(pool.getByRole('cell').nth(13)).toHaveText('5')
+  await expect(pool.getByRole('cell').nth(15)).toHaveText('3')
+  await expect(pool.getByRole('cell').nth(16)).toHaveText('2')
+  await view.selectOption('allocations')
+  const allocationRow = page.getByRole('row').filter({ hasText: allocation.allocationNumber })
+  await expect(allocationRow.getByRole('cell').nth(7)).toHaveText('5')
+  await expect(allocationRow.getByRole('cell').nth(8)).toHaveText('2')
+  await view.selectOption('issuances')
+  const issuedRow = page.getByRole('row').filter({ hasText: issuance.issuanceNumber })
+  await expect(issuedRow).toContainText(request.requestNumber)
+  await expect(issuedRow.getByRole('cell').nth(9)).toHaveText('2')
 })
 
 test('cancelling an unissued allocation releases inventory and quota', async ({ page }) => {
@@ -182,7 +201,7 @@ test('insufficient stock is shown in the approval dialog without committing anyt
 test('revises a complimentary request to purchase before approving 25 eligible tickets', async ({ page }) => {
   const fixture = await createFixture(25)
   await prisma.inventoryPool.update({ where: { id: fixture.pool.id }, data: { ticketPurpose: 'PURCHASE' } })
-  const original = await submitRequest(page, fixture, 2)
+  const original = await submitRequest(page, fixture, 2, true)
   await page.goto('/approvals')
   await page.getByLabel('Filter approval steps on this page').fill(original.requestNumber)
   await page.getByRole('button', { name: 'Approve', exact: true }).click()
@@ -242,4 +261,14 @@ test('revises a complimentary request to purchase before approving 25 eligible t
   const reportRow = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'Suite-5', exact: true }) })
   await expect(reportRow.getByRole('cell')).toHaveText(['Suite-5', '25', '25', '25', '0', '0'])
   await expect(page.getByText('0 of 10 tickets', { exact: true })).toBeVisible()
+})
+
+
+test('Suite-5 purchase inventory supplies the request type through final approval', async ({ page }) => {
+  const fixture = await createFixture(25)
+  await prisma.inventoryPool.update({ where: { id: fixture.pool.id }, data: { ticketPurpose: 'PURCHASE' } })
+  const request = await submitRequest(page, fixture, 25)
+  expect(request.preferredType).toBe('PURCHASE')
+  await approve(page, request)
+  await expectBalances(fixture, 0, 25, 0, 0)
 })
