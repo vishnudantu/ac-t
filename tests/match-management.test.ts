@@ -107,6 +107,19 @@ describe('quota pool editing', () => {
     expect(prismaMock.auditEvent.create.mock.calls[0][0].data.action).toBe('UPDATE')
   })
 
+  it('ignores matchId field when present (from quota editor form)', async () => {
+    const response = await patchQuota(request({ matchId: 'match-1', displayName: 'ACA Match ID Test', isActive: true }), context('quota-1'))
+    expect(response.status).toBe(200)
+    expect(prismaMock.quotaPool.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'quota-1' }, data: expect.objectContaining({ displayName: 'ACA Match ID Test', isActive: true }) }))
+  })
+
+  it('does not include matchId in audit event changedFields', async () => {
+    await patchQuota(request({ matchId: 'match-1', displayName: 'ACA Match ID Test' }), context('quota-1'))
+    const changedFields = prismaMock.auditEvent.create.mock.calls[0][0].data.changedFields
+    expect(changedFields).not.toContain('matchId')
+    expect(changedFields).toContain('displayName')
+  })
+
   it('requires quotas:write and a valid match-scoped category when reallocating', async () => {
     getSessionMock.mockResolvedValue({ ...matchAdmin, permissions: ['quotas:read'] })
     expect((await patchQuota(request({ displayName: 'New' }), context('quota-1'))).status).toBe(403)

@@ -9,6 +9,7 @@ interface Context { params: Promise<{ id: string }> }
 const idSchema = z.string().trim().min(1).max(100)
 
 const quotaUpdateSchema = z.object({
+  matchId: idSchema.optional(),
   displayName: z.string().trim().min(2).max(500).optional(),
   description: z.string().trim().max(2000).nullish(),
   ownerId: z.string().trim().min(1).nullish(),
@@ -17,7 +18,7 @@ const quotaUpdateSchema = z.object({
     ticketCategoryId: z.string().trim().min(1),
     allocatedQuantity: z.number().int().positive().max(2_000_000),
   }).strict()).optional(),
-}).strict().refine((value) => Object.keys(value).length > 0, 'At least one change is required')
+}).strict().refine((value) => Object.keys(value).filter((key) => key !== 'matchId').length > 0, 'At least one change is required')
 
 export const PATCH = withApiHandler<Context>(async (request, session, context) => {
   if (!context) return NextResponse.json({ error: 'Quota ID required' }, { status: 400 })
@@ -89,7 +90,7 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
       userId: session.userId, matchId: current.matchId, entityType: 'QUOTA', entityId: id, action: 'UPDATE',
       oldValues: JSON.stringify({ displayName: current.displayName, totalAllocation: current.totalAllocation, isActive: current.isActive }),
       newValues: JSON.stringify({ displayName: updated.displayName, totalAllocation: updated.totalAllocation, isActive: updated.isActive }),
-      changedFields: Object.keys(input),
+      changedFields: Object.keys(input).filter((key) => key !== 'matchId'),
     } })
     return updated
   })
