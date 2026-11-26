@@ -6,6 +6,7 @@ import { sendNotification } from '@/lib/notifications'
 import {
   approvalActionSchema,
   approvalListQuerySchema,
+  approvalRevisionSchema,
   assertApprovalSequence,
   assertApproverAssigned,
   assertDecisionQuantities,
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const session = await getSession()
     if (!session) return responseError('Unauthorized', 401)
     if (!hasPermission(session.permissions, 'approvals:decide')) return responseError('Forbidden', 403)
-    const input = approvalActionSchema.parse(await request.json())
+    const input = z.union([approvalRevisionSchema, approvalActionSchema]).parse(await request.json())
     const result = await prisma.$transaction(async (tx) => {
       const roleIds = await activeRoleIds(tx, session.userId)
       const overseeAll = hasRole(session.roles, 'SUPER_ADMIN') || hasPermission(session.permissions, 'approvals:escalate')
@@ -93,13 +94,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         throw new LifecycleRuleError('Approval workflow is inactive', 409)
       }
       assertApprovalSequence(step.request.approvalSteps, step.id)
+      if (!['SUBMITTED', 'UNDER_REVIEW'].includes(step.request.status)) {
+        throw new LifecycleRuleError('Request is no longer awaiting approval', 409)
+      }
+      if (input.requestVersion !== undefined && input.requestVersion !== step.request.version) {
+        throw new LifecycleRuleError('The request changed. Refresh the approval queue and review it again.', 409)
+      }
+      if (input.action === 'REVISE') return reviseRequest(tx, step, input, session.userId)
       if (input.action === 'RETURN' && !step.stepDefinition.allowReturnForClarification) {
         throw new LifecycleRuleError('This step does not allow return for clarification', 409)
       }
       assertDecisionQuantities(step.request.items, input, step.stepDefinition.allowPartialApproval)
-      if (!['SUBMITTED', 'UNDER_REVIEW'].includes(step.request.status)) {
-        throw new LifecycleRuleError('Request is no longer awaiting approval', 409)
-      }
       await claimStepAndRequest(tx, step, input.action)
       return input.action === 'APPROVE' || input.action === 'PARTIAL'
         ? approveStep(tx, step, input, session)
@@ -154,6 +159,60 @@ async function claimStepAndRequest(tx: Transaction, step: ApprovalStep, action: 
     data: { status: terminalStatus, startedAt: step.startedAt ?? new Date(), completedAt: new Date() },
   })
   if (claimedStep.count !== 1) throw new LifecycleRuleError('Approval step changed; retry the decision', 409)
+}
+
+async function reviseRequest(
+  tx: Transaction, step: ApprovalStep, input: z.infer<typeof approvalRevisionSchema>, userId: string,
+) {
+  const request = step.request
+  const quantities = new Map(input.items.map((item) => [item.requestItemId, item.requestedQuantity]))
+  if (quantities.size !== input.items.length || quantities.size !== request.items.length
+    || request.items.some((item) => !quantities.has(item.id))) {
+    throw new LifecycleRuleError('Enter one revised quantity for every item in this request', 400)
+  }
+  if ((request.preferredType ?? 'COMPLIMENTARY') === input.ticketType
+    && request.items.every((item) => quantities.get(item.id) === item.requestedQuantity)) {
+    throw new LifecycleRuleError('Change a requested quantity or the ticket type before saving', 400)
+  }
+  const activeAllocations = await tx.allocation.count({
+    where: { requestId: request.id, status: { notIn: ['RELEASED', 'CANCELLED'] } },
+  })
+  if (activeAllocations || request.totalAllocated || request.totalIssued
+    || request.items.some((item) => item.allocatedQuantity || item.issuedQuantity)) {
+    throw new LifecycleRuleError('Requests with committed tickets cannot be revised here', 409)
+  }
+  const first = request.approvalSteps.reduce((earliest, candidate) => candidate.stepOrder < earliest.stepOrder ? candidate : earliest, step)
+  const totalRequested = input.items.reduce((sum, item) => sum + item.requestedQuantity, 0)
+  const claim = await tx.request.updateMany({
+    where: { id: request.id, version: input.requestVersion, status: request.status },
+    data: {
+      totalRequested, preferredType: input.ticketType, totalApproved: 0, approvedAt: null,
+      status: 'UNDER_REVIEW', fulfilmentStatus: 'PENDING', version: { increment: 1 },
+    },
+  })
+  if (claim.count !== 1) throw new LifecycleRuleError('The request changed. Refresh and revise it again.', 409)
+  for (const item of input.items) {
+    await tx.requestItem.update({
+      where: { id: item.requestItemId },
+      data: { requestedQuantity: item.requestedQuantity, approvedQuantity: 0 },
+    })
+  }
+  await tx.approvalStep.updateMany({
+    where: { requestId: request.id },
+    data: { status: 'PENDING', startedAt: null, completedAt: null },
+  })
+  await tx.approvalStep.update({ where: { id: first.id }, data: { status: 'IN_PROGRESS', startedAt: new Date() } })
+  await tx.auditEvent.create({ data: {
+    userId, matchId: request.matchId, entityType: 'REQUEST', entityId: request.id, action: 'REVISE_REQUEST',
+    reason: input.reason, changedFields: ['requestedQuantity', 'preferredType', 'approvalWorkflow'],
+    oldValues: JSON.stringify({
+      stepId: step.id, ticketType: request.preferredType, totalRequested: request.totalRequested,
+      totalApproved: request.totalApproved,
+      items: request.items.map(({ id, requestedQuantity, approvedQuantity }) => ({ requestItemId: id, requestedQuantity, approvedQuantity })),
+    }),
+    newValues: JSON.stringify({ stepId: first.id, ticketType: input.ticketType, totalRequested, totalApproved: 0, items: input.items }),
+  } })
+  return { requestStatus: 'UNDER_REVIEW', totalRequested, totalApproved: 0 }
 }
 
 async function approveStep(tx: Transaction, step: ApprovalStep, input: ApprovalInput, session: SessionPayload) {

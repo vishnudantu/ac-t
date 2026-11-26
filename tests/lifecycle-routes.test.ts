@@ -74,6 +74,54 @@ describe('approval queue route', () => {
 })
 
 describe('approval decision route', () => {
+  it('audits a quantity and ticket-type revision and restarts the chain without allocating stock', async () => {
+    const step = {
+      id: 'step-2', requestId: 'request-1', status: 'IN_PROGRESS', stepOrder: 2,
+      assignedToId: 'user-1', assignedRoleId: null, assignedRole: null,
+      stepDefinition: { isActive: true }, workflow: { isActive: true },
+      request: {
+        id: 'request-1', matchId: 'match-1', version: 3, totalRequested: 2, totalApproved: 2,
+        preferredType: 'COMPLIMENTARY', status: 'UNDER_REVIEW',
+        items: [{ id: 'item-1', requestedQuantity: 2, approvedQuantity: 2 }],
+        approvalSteps: [{ id: 'step-1', stepOrder: 1, status: 'APPROVED' }, { id: 'step-2', stepOrder: 2, status: 'IN_PROGRESS' }],
+      },
+    }
+    const tx = {
+      roleAssignment: { findMany: jest.fn().mockResolvedValue([]) },
+      approvalStep: { findFirst: jest.fn().mockResolvedValue(step), updateMany: jest.fn(), update: jest.fn() },
+      request: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      requestItem: { update: jest.fn() },
+      allocation: { count: jest.fn().mockResolvedValue(0), create: jest.fn() },
+      auditEvent: { create: jest.fn() },
+    }
+    prismaMock.$transaction.mockImplementation(async (callback) => callback(tx))
+    const revision = {
+      stepId: 'step-2', action: 'REVISE', requestVersion: 3, reason: 'Purchase stock agreed', ticketType: 'PURCHASE',
+      items: [{ requestItemId: 'item-1', requestedQuantity: 25 }],
+    }
+    const post = (body: object) => approvalsPost(new NextRequest('http://localhost/api/approvals', {
+      method: 'POST', body: JSON.stringify(body),
+    }))
+    expect((await post({ ...revision, reason: ' ' })).status).toBe(400)
+    expect((await post({ ...revision, requestVersion: 2 })).status).toBe(409)
+    expect(tx.request.updateMany).not.toHaveBeenCalled()
+    expect((await post(revision)).status).toBe(200)
+    expect(tx.requestItem.update).toHaveBeenCalledWith({
+      where: { id: 'item-1' }, data: { requestedQuantity: 25, approvedQuantity: 0 },
+    })
+    expect(tx.request.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ preferredType: 'PURCHASE', totalRequested: 25, totalApproved: 0 }),
+    }))
+    expect(tx.approvalStep.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'step-1' }, data: expect.objectContaining({ status: 'IN_PROGRESS' }),
+    }))
+    expect(tx.allocation.create).not.toHaveBeenCalled()
+    const audit = tx.auditEvent.create.mock.calls[0][0].data
+    expect(audit).toMatchObject({ action: 'REVISE_REQUEST', entityId: 'request-1', userId: 'user-1', reason: revision.reason })
+    expect(JSON.parse(audit.oldValues)).toMatchObject({ totalRequested: 2, ticketType: 'COMPLIMENTARY' })
+    expect(JSON.parse(audit.newValues)).toMatchObject({ totalRequested: 25, ticketType: 'PURCHASE' })
+  })
+
   it('claims the step and request version before advancing and auditing a partial approval', async () => {
     const step = {
       id: 'step-1', requestId: 'request-1', status: 'IN_PROGRESS', stepOrder: 1, updatedAt: new Date('2026-11-24T10:00:00.000Z'), startedAt: null,

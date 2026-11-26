@@ -26,6 +26,8 @@ export interface ApprovalStepRecord {
   request: {
     id: string
     requestNumber: string
+    version: number
+    preferredType: string | null
     priority: string
     status: string
     totalRequested: number

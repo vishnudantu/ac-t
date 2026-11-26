@@ -12,6 +12,7 @@ test.beforeAll(async () => {
   const permissions = [
     'matches:read', 'requests:read', 'requests:write', 'approvals:read', 'approvals:decide',
     'allocations:read', 'allocations:confirm', 'distribution:read', 'distribution:issue',
+    'inventory:read', 'quotas:read', 'reports:read',
   ]
   const role = await prisma.role.upsert({ where: { name: 'BROWSER_TESTER' }, update: {}, create: {
     name: 'BROWSER_TESTER', displayName: 'Browser tester',
@@ -75,13 +76,13 @@ async function submitRequest(page: Page, fixture: Fixture, quantity = 5) {
   return prisma.request.findUniqueOrThrow({ where: { id } })
 }
 
-async function decide(page: Page, requestNumber: string) {
+async function decide(page: Page, requestNumber: string, requestedQuantity = 5) {
   await page.goto('/approvals')
   await page.getByLabel('Filter approval steps on this page').fill(requestNumber)
   await page.getByRole('button', { name: 'Approve', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Approve request' })
   const quantity = dialog.getByRole('spinbutton', { name: 'Pavilion' })
-  await expect(quantity).toHaveValue('5')
+  await expect(quantity).toHaveValue(String(requestedQuantity))
   await expect(quantity).not.toBeEditable()
   await dialog.getByLabel(/^Remarks\b/).fill('Verified by the browser test')
   await dialog.getByRole('button', { name: 'Approve request', exact: true }).click()
@@ -89,7 +90,7 @@ async function decide(page: Page, requestNumber: string) {
 }
 
 async function approve(page: Page, request: Awaited<ReturnType<typeof submitRequest>>) {
-  const dialog = await decide(page, request.requestNumber)
+  const dialog = await decide(page, request.requestNumber, request.totalRequested)
   await expect(dialog).toBeHidden()
   return prisma.allocation.findFirstOrThrow({ where: { requestId: request.id }, include: { items: true } })
 }
@@ -175,4 +176,42 @@ test('insufficient stock is shown in the approval dialog without committing anyt
   })
   expect(await prisma.allocation.count({ where: { requestId: request.id } })).toBe(0)
   await expectBalances(fixture, 2, 0, 0, 0)
+})
+
+
+test('revises a complimentary request to purchase before approving 25 eligible tickets', async ({ page }) => {
+  const fixture = await createFixture(25)
+  await prisma.inventoryPool.update({ where: { id: fixture.pool.id }, data: { ticketPurpose: 'PURCHASE' } })
+  const original = await submitRequest(page, fixture, 2)
+  await page.goto('/approvals')
+  await page.getByLabel('Filter approval steps on this page').fill(original.requestNumber)
+  await page.getByRole('button', { name: 'Approve', exact: true }).click()
+  await page.getByRole('button', { name: 'Revise request' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Revise requested tickets' })
+  await dialog.getByLabel('Revised ticket type').selectOption('PURCHASE')
+  await dialog.getByRole('spinbutton', { name: 'Pavilion' }).fill('25')
+  await dialog.getByLabel(/^Revision reason/).fill('Confirmed purchase quantity')
+  await dialog.getByRole('button', { name: 'Save revision' }).click()
+  await expect(dialog).toBeHidden()
+  const revised = await prisma.request.findUniqueOrThrow({ where: { id: original.id } })
+  expect(revised).toMatchObject({ totalRequested: 25, preferredType: 'PURCHASE', totalApproved: 0 })
+  await expectBalances(fixture, 25, 0, 0, 0)
+  await approve(page, revised)
+  await expectBalances(fixture, 0, 25, 0, 0)
+  const match = encodeURIComponent(fixture.match.id)
+  const [inventory, quotas, reports] = await Promise.all([
+    page.request.get(`/api/inventory?matchId=${match}`),
+    page.request.get(`/api/quotas?matchId=${match}`),
+    page.request.get(`/api/reports?matchId=${match}`),
+  ])
+  for (const response of [inventory, quotas, reports]) await expect(response).toBeOK()
+  expect((await inventory.json()).summary).toMatchObject({ total: 25, available: 0, allocated: 25, issued: 0 })
+  expect(await quotas.json()).toMatchObject({
+    totals: { allocation: 10, consumed: 0 },
+    inventoryByCategory: [{ categoryId: fixture.category.id, purchase: 25, complimentary: 0, unclassified: 0 }],
+  })
+  expect(await reports.json()).toMatchObject({
+    summary: { requested: 25, approved: 25, allocated: 25, issued: 0, available: 0, quotaConsumed: 0 },
+    categories: [{ id: fixture.category.id, approved: 25, allocated: 25, issued: 0, available: 0 }],
+  })
 })

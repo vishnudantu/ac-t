@@ -28,6 +28,8 @@ const titles: Record<ApprovalAction, string> = {
 }
 
 export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDecided }: DecisionDialogProps) {
+  const [revising, setRevising] = useState(false)
+  const [ticketType, setTicketType] = useState<"COMPLIMENTARY" | "PURCHASE">("COMPLIMENTARY")
   const [remarks, setRemarks] = useState("")
   const [confidentialRemarks, setConfidentialRemarks] = useState("")
   const [quantities, setQuantities] = useState<Record<string, number>>({})
@@ -45,6 +47,8 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
         setAvailability(map)
       })
       .catch(() => setAvailability({}))
+    setRevising(false)
+    setTicketType(step.request.preferredType === "PURCHASE" ? "PURCHASE" : "COMPLIMENTARY")
     setQuantities({})
     setRemarks("")
     setConfidentialRemarks("")
@@ -56,20 +60,38 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
   const isApproval = isFullApproval || action === "PARTIAL"
   const decisionQuantities = Object.fromEntries(step.request.items.map((item) => [
     item.id,
-    isFullApproval ? item.requestedQuantity : quantities[item.id] ?? item.approvedQuantity,
+    revising ? quantities[item.id] ?? item.requestedQuantity
+      : isFullApproval ? item.requestedQuantity : quantities[item.id] ?? item.approvedQuantity,
   ]))
+  const submitLabel = revising ? "Save revision" : titles[action]
+
+  function changeRevisionMode() {
+    setRevising((current) => !current)
+    setQuantities({})
+    setRemarks("")
+    setError(null)
+  }
+
   const quantityError = approvalDecisionError(action, step.request.items, decisionQuantities)
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!step) return
-    if (!remarks.trim()) return setError("Remarks are required for this decision.")
-    if (quantityError) return setError(quantityError)
+    if (!remarks.trim()) return setError(revising ? "A revision reason is required." : "Remarks are required for this decision.")
+    if (!revising && quantityError) return setError(quantityError)
     setSubmitting(true)
     setError(null)
     try {
-      await postLifecycle("/api/approvals", {
+      await postLifecycle("/api/approvals", revising ? {
         stepId: step.id,
+        requestVersion: step.request.version,
+        action: "REVISE",
+        reason: remarks.trim(),
+        ticketType,
+        items: step.request.items.map((item) => ({ requestItemId: item.id, requestedQuantity: decisionQuantities[item.id] })),
+      } : {
+        stepId: step.id,
+        requestVersion: step.request.version,
         action,
         remarks: remarks.trim(),
         ...(confidentialRemarks.trim() ? { confidentialRemarks: confidentialRemarks.trim() } : {}),
@@ -88,14 +110,33 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
     <Dialog open={open} onOpenChange={(value) => { if (!submitting) onOpenChange(value) }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{titles[action]}</DialogTitle>
+          <DialogTitle>{revising ? "Revise requested tickets" : titles[action]}</DialogTitle>
           <DialogDescription>{step.request.requestNumber} · {step.request.requester.fullName} · {step.name}</DialogDescription>
         </DialogHeader>
         <form id="approval-decision-form" className="space-y-5" onSubmit={submit}>
           {isApproval && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm">Requested ticket type: {step.request.preferredType === "PURCHASE" ? "Purchase" : "Complimentary"}</p>
+              <Button type="button" variant="outline" size="sm" disabled={submitting} onClick={changeRevisionMode}>
+                {revising ? "Back to approval" : "Revise request"}
+              </Button>
+            </div>
+          )}
+          {revising && (
+            <div className="space-y-2">
+              <Label htmlFor="revision-ticket-type">Revised ticket type</Label>
+              <select id="revision-ticket-type" className="w-full rounded-md border bg-background p-2" value={ticketType}
+                onChange={(event) => setTicketType(event.target.value === "PURCHASE" ? "PURCHASE" : "COMPLIMENTARY")}>
+                <option value="COMPLIMENTARY">Complimentary</option>
+                <option value="PURCHASE">Purchase</option>
+              </select>
+              <p className="text-sm text-muted-foreground">Saving restarts approval. Stock and quota are checked when final approval is submitted.</p>
+            </div>
+          )}
+          {isApproval && (
             <fieldset className="space-y-3">
-              <legend className="text-sm font-semibold">Approved quantities</legend>
-              {isFullApproval && <p className="text-sm text-muted-foreground">Full approval includes every requested ticket. To approve fewer, use Partial if this approval step allows it.</p>}
+              <legend className="text-sm font-semibold">{revising ? "Revised requested quantities" : "Approved quantities"}</legend>
+              {isFullApproval && !revising && <p className="text-sm text-muted-foreground">Full approval includes every requested ticket. To approve fewer, use Partial if this approval step allows it.</p>}
               {step.request.items.map((item, index) => (
                 <div key={item.id} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_140px] sm:items-end">
                   <div>
@@ -108,34 +149,34 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
                   <Input
                     id={`approved-${item.id}`}
                     type="number"
-                    min={item.approvedQuantity}
-                    max={item.requestedQuantity}
+                    min={revising ? 1 : item.approvedQuantity}
+                    max={revising ? 1000000 : item.requestedQuantity}
                     step={1}
                     required
-                    readOnly={isFullApproval}
-                    value={decisionQuantities[item.id]}
+                    readOnly={isFullApproval && !revising}
+                    value={Number.isNaN(decisionQuantities[item.id]) ? "" : decisionQuantities[item.id]}
                     onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.valueAsNumber }))}
-                    aria-describedby={isFullApproval ? undefined : `approved-bounds-${item.id}`}
+                    aria-describedby={isFullApproval || revising ? undefined : `approved-bounds-${item.id}`}
                   />
-                  {!isFullApproval && <span id={`approved-bounds-${item.id}`} className="sr-only">Between {item.approvedQuantity} and {item.requestedQuantity}</span>}
+                  {!isFullApproval && !revising && <span id={`approved-bounds-${item.id}`} className="sr-only">Between {item.approvedQuantity} and {item.requestedQuantity}</span>}
                 </div>
               ))}
             </fieldset>
           )}
           <div className="space-y-2">
-            <Label htmlFor="decision-remarks">Remarks <span className="text-destructive" aria-hidden="true">*</span></Label>
+            <Label htmlFor="decision-remarks">{revising ? "Revision reason" : "Remarks"} <span className="text-destructive" aria-hidden="true">*</span></Label>
             <Textarea id="decision-remarks" required maxLength={2000} rows={3} value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Record the basis for this decision" />
           </div>
-          <div className="space-y-2">
+          {!revising && <div className="space-y-2">
             <Label htmlFor="decision-confidential">Confidential remarks <span className="font-normal text-muted-foreground">(optional)</span></Label>
             <Textarea id="decision-confidential" maxLength={2000} rows={2} value={confidentialRemarks} onChange={(event) => setConfidentialRemarks(event.target.value)} placeholder="Internal notes for the approval record" />
-          </div>
+          </div>}
           {error && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert>}
         </form>
         <DialogFooter className="gap-2 sm:space-x-0">
           <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="submit" form="approval-decision-form" variant={action === "REJECT" ? "destructive" : "default"} disabled={submitting}>
-            {submitting ? "Recording…" : titles[action]}
+            {submitting ? "Recording…" : submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
