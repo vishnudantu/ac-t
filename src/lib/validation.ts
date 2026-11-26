@@ -188,6 +188,9 @@ export const inventoryCreateSchema = z.object({
 ).refine(
   (data) => data.isQuotaPool ? !!data.quotaPoolId : !data.quotaPoolId,
   { message: 'quotaPoolId is required when isQuotaPool is true and must be absent otherwise', path: ['quotaPoolId'] },
+).refine(
+  (data) => data.ticketPurpose !== 'MIXED' || data.complimentaryQuantity + data.purchaseQuantity === data.totalQuantity,
+  { message: 'The complimentary and purchase quantities must add up to total stock', path: ['totalQuantity'] },
 )
 
 export type InventoryCreateInput = z.infer<typeof inventoryCreateSchema>

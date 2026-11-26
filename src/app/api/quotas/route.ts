@@ -6,13 +6,14 @@ import { withApiHandler } from '@/lib/api'
 import { quotaCreateSchema, quotaListQuerySchema } from '@/lib/validation'
 import { apiError } from '@/lib/api-core'
 import { assertQuotaCapacity } from '@/lib/capacity'
+import { inventoryPurposeTotals } from '@/lib/inventory-purpose'
 
 export const GET = withApiHandler(async (request: NextRequest, session: SessionPayload) => {
   if (!hasPermission(session.permissions, 'quotas:read')) return apiError('Forbidden', 403)
   const query = quotaListQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams))
   const where: Prisma.QuotaPoolWhereInput = { matchId: query.matchId }
-  const [quotas, total] = await prisma.$transaction([
-    prisma.quotaPool.findMany({
+  const [quotas, total, totals, pools] = await prisma.$transaction(async (tx) => Promise.all([
+    tx.quotaPool.findMany({
       where,
       include: {
         match: { select: { id: true, title: true } },
@@ -23,9 +24,38 @@ export const GET = withApiHandler(async (request: NextRequest, session: SessionP
       },
       orderBy: { name: 'asc' }, take: query.limit, skip: query.offset,
     }),
-    prisma.quotaPool.count({ where }),
-  ])
-  return NextResponse.json({ success: true, quotas, total })
+    tx.quotaPool.count({ where }),
+    tx.quotaPool.aggregate({ where, _sum: { totalAllocation: true, consumedQuantity: true } }),
+    hasPermission(session.permissions, 'inventory:read') ? tx.inventoryPool.findMany({
+      where: { matchId: query.matchId },
+      select: {
+        ticketPurpose: true, totalQuantity: true, complimentaryQuantity: true, purchaseQuantity: true,
+        ticketCategory: { select: { id: true, displayName: true } },
+        match: { select: { title: true } },
+      },
+      orderBy: [{ match: { title: 'asc' } }, { ticketCategory: { displayName: 'asc' } }],
+    }) : null,
+  ]))
+  const byCategory = new Map<string, {
+    categoryId: string; category: string; match: string; complimentary: number; purchase: number; unclassified: number
+  }>()
+  for (const pool of pools ?? []) {
+    const id = pool.ticketCategory.id
+    const current = byCategory.get(id) ?? {
+      categoryId: id, category: pool.ticketCategory.displayName, match: pool.match.title,
+      complimentary: 0, purchase: 0, unclassified: 0,
+    }
+    const split = inventoryPurposeTotals(pool)
+    current.complimentary += split.complimentary
+    current.purchase += split.purchase
+    current.unclassified += split.unclassified
+    byCategory.set(id, current)
+  }
+  return NextResponse.json({
+    success: true, quotas, total,
+    totals: { allocation: totals._sum.totalAllocation ?? 0, consumed: totals._sum.consumedQuantity ?? 0 },
+    inventoryByCategory: pools ? [...byCategory.values()] : null,
+  })
 })
 
 export const POST = withApiHandler(async (request: NextRequest, session: SessionPayload) => {

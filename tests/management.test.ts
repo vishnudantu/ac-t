@@ -18,6 +18,7 @@ const prismaMock = {
   sessionToken: { deleteMany: jest.fn() },
   auditEvent: { create: jest.fn(), count: jest.fn() },
   $transaction: jest.fn(),
+  $queryRaw: jest.fn(),
 }
 
 jest.mock('../src/lib/prisma', () => ({ prisma: prismaMock }))
@@ -62,7 +63,7 @@ beforeEach(() => {
   prismaMock.requester.findUnique.mockResolvedValue({ id: 'req-1', fullName: 'Old Name', isActive: true })
   prismaMock.requester.update.mockResolvedValue({ id: 'req-1', fullName: 'New Name', isActive: false })
   prismaMock.requester.delete.mockResolvedValue({ id: 'req-1' })
-  prismaMock.inventoryPool.findUnique.mockResolvedValue({ id: 'inv-1', matchId: 'match-1', totalQuantity: 100 })
+  prismaMock.inventoryPool.findUnique.mockResolvedValue({ id: 'inv-1', matchId: 'match-1', totalQuantity: 100, _count: { allocations: 0, ticketSerials: 0 } })
   prismaMock.inventoryPool.delete.mockResolvedValue({ id: 'inv-1' })
   prismaMock.match.update.mockResolvedValue({})
   prismaMock.request.count.mockResolvedValue(0)
@@ -126,10 +127,19 @@ describe('requester management', () => {
 
 describe('inventory pool management', () => {
   it('blocks deleting a pool with allocation or serial history', async () => {
-    prismaMock.allocationItem.count.mockResolvedValue(1)
+    prismaMock.inventoryPool.findUnique
+      .mockResolvedValueOnce({ id: 'inv-1', _count: { allocations: 1, ticketSerials: 0 } })
+      .mockResolvedValueOnce({ id: 'inv-1', _count: { allocations: 0, ticketSerials: 3 } })
     expect((await deleteInventory(request(), context('inv-1'))).status).toBe(409)
-    prismaMock.allocationItem.count.mockResolvedValue(0)
-    prismaMock.ticketSerial.count.mockResolvedValue(3)
+    expect((await deleteInventory(request(), context('inv-1'))).status).toBe(409)
+    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(2)
+    expect(prismaMock.inventoryPool.delete).not.toHaveBeenCalled()
+  })
+
+  it('preserves a pool with issued stock even if it has no internal allocation records', async () => {
+    prismaMock.inventoryPool.findUnique.mockResolvedValueOnce({
+      id: 'inv-1', issuedQuantity: 2, _count: { allocations: 0, ticketSerials: 0 },
+    })
     expect((await deleteInventory(request(), context('inv-1'))).status).toBe(409)
     expect(prismaMock.inventoryPool.delete).not.toHaveBeenCalled()
   })

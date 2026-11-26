@@ -94,7 +94,8 @@ describe('automatic approval workflow provisioning', () => {
 })
 
 describe('request editing and deletion', () => {
-  it('edits items and totals of a submitted request with an audit event', async () => {
+  it('resets approval steps and approved quantities when an in-review request changes', async () => {
+    prismaMock.approvalStep.findFirst.mockResolvedValueOnce({ id: 'step-1' })
     prismaMock.request.findUnique
       .mockResolvedValueOnce({ id: 'request-1', matchId: 'match-1', status: 'UNDER_REVIEW', assignedToId: null, version: 3 })
       .mockResolvedValueOnce({ requesterId: 'requester-1' })
@@ -103,7 +104,13 @@ describe('request editing and deletion', () => {
     expect(response.status).toBe(200)
     expect(prismaMock.requestItem.deleteMany).toHaveBeenCalledWith({ where: { requestId: 'request-1' } })
     expect(prismaMock.requestItem.createMany).toHaveBeenCalled()
-    expect(prismaMock.request.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ totalRequested: 5 }) }))
+    expect(prismaMock.request.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'request-1', version: 3 },
+      data: expect.objectContaining({ totalRequested: 5, totalApproved: 0 }),
+    }))
+    expect(prismaMock.approvalStep.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'step-1' }, data: expect.objectContaining({ status: 'IN_PROGRESS' }),
+    }))
   })
 
   it('requires reapproval after editing an approved request', async () => {
@@ -113,6 +120,13 @@ describe('request editing and deletion', () => {
     const response = await patchRequest(request('/api/requests/request-1', { priority: 'HIGH' }), context('request-1'))
     expect(response.status).toBe(200)
     expect(prismaMock.request.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'UNDER_REVIEW', totalApproved: 0 }) }))
+  })
+
+  it('requires assignment permission for changing or clearing an assignee', async () => {
+    for (const assignedToId of ['other-user', null]) {
+      expect((await patchRequest(request('/api/requests/request-1', { assignedToId }), context('request-1'))).status).toBe(403)
+    }
+    expect(prismaMock.request.update).not.toHaveBeenCalled()
   })
 
   it('blocks editing closed requests', async () => {

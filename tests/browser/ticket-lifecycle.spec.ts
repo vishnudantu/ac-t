@@ -80,6 +80,9 @@ async function decide(page: Page, requestNumber: string) {
   await page.getByLabel('Filter approval steps on this page').fill(requestNumber)
   await page.getByRole('button', { name: 'Approve', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Approve request' })
+  const quantity = dialog.getByRole('spinbutton', { name: 'Pavilion' })
+  await expect(quantity).toHaveValue('5')
+  await expect(quantity).not.toBeEditable()
   await dialog.getByLabel(/^Remarks\b/).fill('Verified by the browser test')
   await dialog.getByRole('button', { name: 'Approve request', exact: true }).click()
   return dialog

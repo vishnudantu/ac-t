@@ -1,8 +1,9 @@
+import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { hasPermission, hasRole } from '@/lib/auth'
-import { withApiHandler } from '@/lib/api'
+import { ApiError, withApiHandler } from '@/lib/api'
 
 interface Context { params: Promise<{ id: string }> }
 const requestIdSchema = z.string().trim().min(1).max(100)
@@ -52,15 +53,24 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
   if (!hasPermission(session.permissions, 'requests:write')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const id = requestIdSchema.parse((await context.params).id)
   const input = requestUpdateSchema.parse(await request.json())
+  if (input.assignedToId !== undefined && !hasPermission(session.permissions, 'requests:assign')) {
+    return NextResponse.json({ error: 'Forbidden to change the request assignee' }, { status: 403 })
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     const current = await tx.request.findUnique({ where: { id }, select: { id: true, matchId: true, status: true, assignedToId: true, version: true } })
     if (!current) return { status: 404 as const }
     const editable = ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PARTIALLY_APPROVED'].includes(current.status)
     if (!editable) return { status: 409 as const, message: `A ${current.status.toLowerCase().replace('_', ' ')} request cannot be edited` }
-    // Modifying an already-approved request sends it back through reapproval:
-    // reset approved totals and reopen the first approval step.
-    const requiresReapproval = current.status === 'APPROVED' || current.status === 'PARTIALLY_APPROVED'
+    const approved = current.status === 'APPROVED' || current.status === 'PARTIALLY_APPROVED'
+    const changesApprovalInputs = input.items !== undefined || input.preferredType !== undefined || input.preferredStand !== undefined
+    const requiresReapproval = current.status !== 'DRAFT' && (approved || changesApprovalInputs)
+    const firstStep = requiresReapproval
+      ? await tx.approvalStep.findFirst({ where: { requestId: id }, orderBy: { stepOrder: 'asc' }, select: { id: true } })
+      : null
+    if (requiresReapproval && !firstStep) {
+      return { status: 409 as const, message: 'This request needs an approval workflow before its ticket details can be changed' }
+    }
     if (current.status !== 'DRAFT') {
       const activeAllocations = await tx.allocation.count({ where: { requestId: id, status: { notIn: ['RELEASED', 'CANCELLED'] } } })
       if (activeAllocations > 0) return { status: 409 as const, message: 'Requests with active allocations cannot be edited' }
@@ -85,7 +95,10 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
     const totalRequested = input.items
       ? input.items.reduce((sum, item) => sum + item.requestedQuantity, 0)
       : undefined
-    const updated = await tx.request.update({ where: { id }, data: {
+    if (firstStep) {
+      await tx.requestItem.updateMany({ where: { requestId: id }, data: { approvedQuantity: 0 } })
+    }
+    const updated = await tx.request.update({ where: { id, version: current.version }, data: {
       priority: input.priority,
       sourceReference: input.sourceReference,
       requiredDeliveryMethod: input.requiredDeliveryMethod,
@@ -102,15 +115,9 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
       } : {}),
       version: { increment: 1 },
     }, include: { items: { include: { ticketCategory: true } }, requester: true, match: true } })
-    if (requiresReapproval) {
-      // Reopen the first approval step and reset the rest so the modified
-      // request passes through the approval chain again.
-      const firstStep = await tx.approvalStep.findFirst({ where: { requestId: id }, orderBy: { stepOrder: 'asc' }, select: { id: true } })
-      if (firstStep) {
-        await tx.approvalStep.updateMany({ where: { requestId: id }, data: { status: 'PENDING', startedAt: null, completedAt: null } })
-        await tx.approvalStep.update({ where: { id: firstStep.id }, data: { status: 'IN_PROGRESS', startedAt: new Date(), completedAt: null } })
-        await tx.requestItem.updateMany({ where: { requestId: id }, data: { approvedQuantity: 0 } })
-      }
+    if (firstStep) {
+      await tx.approvalStep.updateMany({ where: { requestId: id }, data: { status: 'PENDING', startedAt: null, completedAt: null } })
+      await tx.approvalStep.update({ where: { id: firstStep.id }, data: { status: 'IN_PROGRESS', startedAt: new Date(), completedAt: null } })
     }
     await tx.auditEvent.create({ data: {
       userId: session.userId, matchId: current.matchId, entityType: 'REQUEST', entityId: id, action: 'UPDATE',
@@ -119,6 +126,11 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
       changedFields: Object.keys(input),
     } })
     return { status: 200 as const, request: updated }
+  }).catch((error: unknown) => {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2025', 'P2034'].includes(error.code)) {
+      throw new ApiError(409, 'The request changed. Reload it before editing again.')
+    }
+    throw error
   })
   if (updated.status === 404) return NextResponse.json({ error: 'Request not found' }, { status: 404 })
   if (updated.status === 409) return NextResponse.json({ error: updated.message }, { status: 409 })

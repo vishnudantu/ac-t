@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createHmac, timingSafeEqual } from 'node:crypto'
@@ -63,17 +64,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const results: Array<{ ticketCategoryId: string; applied: boolean; remaining: number | null; reason?: string }> = []
 
   for (const item of payload.items) {
+    // Refunds need a recorded sale-to-pool mapping before stock can be released.
+    if (payload.event === 'REFUND') {
+      results.push({ ticketCategoryId: item.ticketCategoryId, applied: false, remaining: null, reason: 'refund_requires_reconciliation' })
+      continue
+    }
+    const where = {
+      matchId: item.matchId, ticketCategoryId: item.ticketCategoryId,
+      ticketPurpose: 'PURCHASE', isQuotaPool: false, quotaPoolId: null,
+    }
     if (payload.event === 'VALIDATE' || !live) {
-      const pool = await prisma.inventoryPool.aggregate({
-        where: { matchId: item.matchId, ticketCategoryId: item.ticketCategoryId },
-        _sum: { totalQuantity: true, allocatedQuantity: true, issuedQuantity: true, voidQuantity: true },
+      const pool = await prisma.inventoryPool.aggregate({ where, _sum: { availableQuantity: true } })
+      const remaining = Math.max(0, pool._sum.availableQuantity ?? 0)
+      results.push({
+        ticketCategoryId: item.ticketCategoryId, applied: false, remaining,
+        reason: remaining >= item.quantity ? 'validated' : 'insufficient_availability',
       })
-      const capacity = pool._sum.totalQuantity ?? 0
-      const committed = (pool._sum.allocatedQuantity ?? 0) + (pool._sum.issuedQuantity ?? 0) + (pool._sum.voidQuantity ?? 0)
-      const remaining = Math.max(0, capacity - committed)
-      const delta = payload.event === 'REFUND' ? -item.quantity : item.quantity
-      const enough = payload.event === 'REFUND' || remaining >= delta
-      results.push({ ticketCategoryId: item.ticketCategoryId, applied: false, remaining, reason: enough ? 'validated' : 'insufficient_availability' })
       continue
     }
 
@@ -87,51 +93,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         if (existing) return { ticketCategoryId: item.ticketCategoryId, applied: false, remaining: null, reason: 'duplicate' }
 
         const pools = await tx.inventoryPool.findMany({
-          where: { matchId: item.matchId, ticketCategoryId: item.ticketCategoryId },
-          orderBy: { createdAt: 'asc' },
+          where, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         })
-        const delta = payload.event === 'REFUND' ? -item.quantity : item.quantity
-        let remainingDelta = delta
-        let remaining = 0
+        if (pools.reduce((sum, pool) => sum + Math.max(0, pool.availableQuantity), 0) < item.quantity) {
+          throw new Error('Insufficient availability')
+        }
+        let unsold = item.quantity
+        const soldByPool: { poolId: string; quantity: number }[] = []
         for (const pool of pools) {
-          if (payload.event === 'REFUND') {
-            const restore = Math.min(pool.issuedQuantity, remainingDelta)
-            if (restore > 0) {
-              await tx.inventoryPool.update({ where: { id: pool.id }, data: {
-                issuedQuantity: { decrement: restore },
-                availableQuantity: { increment: restore },
-              } })
-              remainingDelta -= restore
-            }
-          } else {
-            const available = pool.totalQuantity - pool.allocatedQuantity - pool.issuedQuantity - pool.voidQuantity
-            const sell = Math.min(available, remainingDelta)
-            if (sell > 0) {
-              await tx.inventoryPool.update({ where: { id: pool.id }, data: {
-                issuedQuantity: { increment: sell },
-                availableQuantity: { decrement: sell },
-              } })
-              remainingDelta -= sell
-            }
-          }
+          const quantity = Math.min(pool.availableQuantity, unsold)
+          if (quantity <= 0) continue
+          const updated = await tx.inventoryPool.updateMany({
+            where: { ...where, id: pool.id, availableQuantity: { gte: quantity } },
+            data: { issuedQuantity: { increment: quantity }, availableQuantity: { decrement: quantity } },
+          })
+          if (updated.count !== 1) throw new Error('Inventory changed; retry sale')
+          soldByPool.push({ poolId: pool.id, quantity })
+          unsold -= quantity
+          if (unsold === 0) break
         }
-        if (remainingDelta > 0) {
-          throw new Error(payload.event === 'REFUND' ? 'Refund exceeds issued quantity' : 'Insufficient availability')
-        }
-        const aggregate = await tx.inventoryPool.aggregate({
-          where: { matchId: item.matchId, ticketCategoryId: item.ticketCategoryId },
-          _sum: { totalQuantity: true, allocatedQuantity: true, issuedQuantity: true, voidQuantity: true },
-        })
-        const capacity = aggregate._sum.totalQuantity ?? 0
-        const committed = (aggregate._sum.allocatedQuantity ?? 0) + (aggregate._sum.issuedQuantity ?? 0) + (aggregate._sum.voidQuantity ?? 0)
-        remaining = Math.max(0, capacity - committed)
+        const aggregate = await tx.inventoryPool.aggregate({ where, _sum: { availableQuantity: true } })
+        const remaining = Math.max(0, aggregate._sum.availableQuantity ?? 0)
         await tx.auditEvent.create({ data: {
           entityType: 'DISTRICT_SALE', entityId: item.externalOrderId, action: payload.event,
-          newValues: JSON.stringify({ matchId: item.matchId, ticketCategoryId: item.ticketCategoryId, quantity: delta, buyerName: item.buyerName }),
+          newValues: JSON.stringify({ matchId: item.matchId, ticketCategoryId: item.ticketCategoryId, quantity: item.quantity, buyerName: item.buyerName, soldByPool }),
           changedFields: ['issuedQuantity'],
         } })
         return { ticketCategoryId: item.ticketCategoryId, applied: true, remaining }
-      })
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
       results.push(result)
     } catch (error: unknown) {
       results.push({ ticketCategoryId: item.ticketCategoryId, applied: false, remaining: null, reason: error instanceof Error ? error.message : 'failed' })

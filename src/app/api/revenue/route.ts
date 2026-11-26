@@ -15,17 +15,17 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
   if (!hasPermission(session.permissions, 'reports:read')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const matchId = request.nextUrl.searchParams.get('matchId') || undefined
 
-  const [pools, config] = await Promise.all([
+  const [pools, config, matches] = await Promise.all([
     prisma.inventoryPool.findMany({
       where: matchId ? { matchId } : undefined,
       select: {
-        ticketPurpose: true, pricingUnit: true, faceValue: true, totalQuantity: true,
-        issuedQuantity: true, allocatedQuantity: true, complimentaryQuantity: true, purchaseQuantity: true,
+        ticketPurpose: true, faceValue: true, issuedQuantity: true,
         ticketCategory: { select: { displayName: true } },
         match: { select: { id: true, title: true } },
       },
     }),
     getIntegrationConfig(),
+    prisma.match.findMany({ select: { id: true, title: true }, orderBy: { matchDate: "desc" } }),
   ])
   // Approved-but-not-yet-issued pipeline: value still in approval→issuance flow.
   const pipeline = await prisma.requestItem.aggregate({
@@ -42,31 +42,15 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
   const rows = pools.map((pool) => {
     const faceValue = Number(pool.faceValue ?? 0)
     const issued = pool.issuedQuantity
-    const purpose = pool.ticketPurpose || 'COMPLIMENTARY'
-
-    if (purpose === 'MIXED') {
-      const total = pool.totalQuantity || 1
-      const compShare = Math.min(1, pool.complimentaryQuantity / total)
-      const compIssued = Math.round(issued * compShare)
-      const saleIssued = issued - compIssued
-      const complimentaryRevenue = nominalComplimentary * compIssued
-      const saleRevenue = faceValue * saleIssued
-      return {
-        purpose, matchTitle: pool.match.title, category: pool.ticketCategory.displayName,
-        complimentaryIssued: compIssued, saleIssued,
-        complimentaryRevenue, saleRevenue,
-        gstOnComplimentary: complimentaryRevenue * gstRate / (1 + gstRate),
-        gstOnSale: saleRevenue * gstRate / (1 + gstRate),
-      }
-    }
-
+    const purpose = pool.ticketPurpose
+    const unclassifiedIssued = purpose === 'COMPLIMENTARY' || purpose === 'PURCHASE' ? 0 : issued
     const complimentaryIssued = purpose === 'COMPLIMENTARY' ? issued : 0
     const saleIssued = purpose === 'PURCHASE' ? issued : 0
     const complimentaryRevenue = nominalComplimentary * complimentaryIssued
     const saleRevenue = faceValue * saleIssued
     return {
       purpose, matchTitle: pool.match.title, category: pool.ticketCategory.displayName,
-      complimentaryIssued, saleIssued,
+      complimentaryIssued, saleIssued, unclassifiedIssued,
       complimentaryRevenue, saleRevenue,
       gstOnComplimentary: complimentaryRevenue * gstRate / (1 + gstRate),
       gstOnSale: saleRevenue * gstRate / (1 + gstRate),
@@ -76,11 +60,12 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
   const totals = rows.reduce((acc, row) => ({
     complimentaryIssued: acc.complimentaryIssued + row.complimentaryIssued,
     saleIssued: acc.saleIssued + row.saleIssued,
+    unclassifiedIssued: acc.unclassifiedIssued + row.unclassifiedIssued,
     complimentaryRevenue: acc.complimentaryRevenue + row.complimentaryRevenue,
     saleRevenue: acc.saleRevenue + row.saleRevenue,
     gstOnComplimentary: acc.gstOnComplimentary + row.gstOnComplimentary,
     gstOnSale: acc.gstOnSale + row.gstOnSale,
-  }), { complimentaryIssued: 0, saleIssued: 0, complimentaryRevenue: 0, saleRevenue: 0, gstOnComplimentary: 0, gstOnSale: 0 })
+  }), { complimentaryIssued: 0, saleIssued: 0, unclassifiedIssued: 0, complimentaryRevenue: 0, saleRevenue: 0, gstOnComplimentary: 0, gstOnSale: 0 })
 
   return NextResponse.json({
     success: true,
@@ -88,14 +73,15 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     nominalComplimentaryPrice: nominalComplimentary,
     totals: {
       ...totals,
-      totalIssued: totals.complimentaryIssued + totals.saleIssued,
+      totalIssued: totals.complimentaryIssued + totals.saleIssued + totals.unclassifiedIssued,
       totalRevenue: totals.complimentaryRevenue + totals.saleRevenue,
       gstTotal: totals.gstOnComplimentary + totals.gstOnSale,
       netOfGst: (totals.complimentaryRevenue + totals.saleRevenue) - (totals.gstOnComplimentary + totals.gstOnSale),
       // Approved-not-yet-issued pipeline so the page is meaningful before issuance.
       pendingApproved: (pipeline._sum.approvedQuantity ?? 0) - (pipeline._sum.issuedQuantity ?? 0),
-      pendingAllocated: pipeline._sum.allocatedQuantity ?? 0,
+      pendingAllocated: Math.max(0, (pipeline._sum.allocatedQuantity ?? 0) - (pipeline._sum.issuedQuantity ?? 0)),
     },
     rows,
+    matches,
   })
 })

@@ -24,37 +24,23 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       id: true, name: true, displayName: true,
       requestItems: { select: { requestedQuantity: true, approvedQuantity: true, allocatedQuantity: true, issuedQuantity: true } },
       inventoryPools: { select: { availableQuantity: true } },
-    }, take: 100, orderBy: { sortOrder: 'asc' },
+    }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
   })
-  // Purpose and pricing breakdown so GST set-off and purchase revenue are visible.
   const pools = await prisma.inventoryPool.findMany({
     where,
-    select: { ticketPurpose: true, pricingUnit: true, faceValue: true, totalQuantity: true, issuedQuantity: true, complimentaryQuantity: true, purchaseQuantity: true },
+    select: { ticketPurpose: true, faceValue: true, issuedQuantity: true },
   })
   const setoff = await prisma.systemSetting.findUnique({ where: { key: 'pricing.complimentary_setoff_per_ticket' }, select: { value: true } })
   const setoffPerTicket = Number(setoff?.value || 499)
   const purposeBreakdown = pools.reduce((acc, pool) => {
-    const purpose = pool.ticketPurpose || 'COMPLIMENTARY'
-    const faceValue = Number(pool.faceValue ?? (purpose === 'COMPLIMENTARY' ? setoffPerTicket : 0))
-    // For mixed pools, split issued proportionally between the two sides using
-    // the configured complimentary/purchase split, so the value reflects the real mix.
-    const total = pool.totalQuantity || 1
-    const compShare = purpose === 'MIXED' ? Math.min(1, pool.complimentaryQuantity / total) : (purpose === 'COMPLIMENTARY' ? 1 : 0)
-    const purchShare = 1 - compShare
-    if (purpose === 'MIXED') {
-      const compIssued = Math.round(pool.issuedQuantity * compShare)
-      const purchIssued = pool.issuedQuantity - compIssued
-      const compBucket = acc.COMPLIMENTARY ?? { pools: 0, issued: 0, value: 0 }
-      const purchBucket = acc.PURCHASE ?? { pools: 0, issued: 0, value: 0 }
-      const mixedBucket = acc.MIXED ?? { pools: 0, issued: 0, value: 0 }
-      acc.COMPLIMENTARY = { pools: compBucket.pools + 1, issued: compBucket.issued + compIssued, value: compBucket.value + faceValue * compIssued }
-      acc.PURCHASE = { pools: purchBucket.pools + 1, issued: purchBucket.issued + purchIssued, value: purchBucket.value + faceValue * purchIssued }
-      acc.MIXED = { pools: mixedBucket.pools + 1, issued: mixedBucket.issued + pool.issuedQuantity, value: mixedBucket.value + faceValue * pool.issuedQuantity }
-    } else {
-      const gross = faceValue * pool.issuedQuantity
-      const bucket = acc[purpose] ?? { pools: 0, issued: 0, value: 0 }
-      acc[purpose] = { pools: bucket.pools + 1, issued: bucket.issued + pool.issuedQuantity, value: bucket.value + gross }
-    }
+    const purpose = pool.ticketPurpose === 'COMPLIMENTARY' || pool.ticketPurpose === 'PURCHASE'
+      ? pool.ticketPurpose : 'UNCLASSIFIED'
+    const bucket = acc[purpose] ?? { pools: 0, issued: 0, value: 0 }
+    bucket.pools += 1
+    bucket.issued += pool.issuedQuantity
+    if (purpose === 'COMPLIMENTARY') bucket.value += setoffPerTicket * pool.issuedQuantity
+    if (purpose === 'PURCHASE') bucket.value += Number(pool.faceValue ?? 0) * pool.issuedQuantity
+    acc[purpose] = bucket
     return acc
   }, {} as Record<string, { pools: number; issued: number; value: number }>)
   return NextResponse.json({ success: true, matches, summary: {
