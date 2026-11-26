@@ -45,18 +45,20 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
         setAvailability(map)
       })
       .catch(() => setAvailability({}))
-    setQuantities(Object.fromEntries(step.request.items.map((item) => [
-      item.id,
-      action === "APPROVE" ? item.requestedQuantity : item.approvedQuantity,
-    ])))
+    setQuantities({})
     setRemarks("")
     setConfidentialRemarks("")
     setError(null)
   }, [action, open, step])
 
   if (!step) return null
-  const isApproval = action === "APPROVE" || action === "PARTIAL"
-  const quantityError = approvalDecisionError(action, step.request.items, quantities)
+  const isFullApproval = action === "APPROVE"
+  const isApproval = isFullApproval || action === "PARTIAL"
+  const decisionQuantities = Object.fromEntries(step.request.items.map((item) => [
+    item.id,
+    isFullApproval ? item.requestedQuantity : quantities[item.id] ?? item.approvedQuantity,
+  ]))
+  const quantityError = approvalDecisionError(action, step.request.items, decisionQuantities)
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -71,7 +73,7 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
         action,
         remarks: remarks.trim(),
         ...(confidentialRemarks.trim() ? { confidentialRemarks: confidentialRemarks.trim() } : {}),
-        ...(isApproval ? { items: step.request.items.map((item) => ({ requestItemId: item.id, approvedQuantity: quantities[item.id] })) } : {}),
+        ...(isApproval ? { items: step.request.items.map((item) => ({ requestItemId: item.id, approvedQuantity: decisionQuantities[item.id] })) } : {}),
       })
       onOpenChange(false)
       await onDecided()
@@ -93,6 +95,7 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
           {isApproval && (
             <fieldset className="space-y-3">
               <legend className="text-sm font-semibold">Approved quantities</legend>
+              {isFullApproval && <p className="text-sm text-muted-foreground">Full approval includes every requested ticket. To approve fewer, use Partial if this approval step allows it.</p>}
               {step.request.items.map((item, index) => (
                 <div key={item.id} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_140px] sm:items-end">
                   <div>
@@ -109,11 +112,12 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
                     max={item.requestedQuantity}
                     step={1}
                     required
-                    value={quantities[item.id] ?? item.approvedQuantity}
+                    readOnly={isFullApproval}
+                    value={decisionQuantities[item.id]}
                     onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.valueAsNumber }))}
-                    aria-describedby={`approved-bounds-${item.id}`}
+                    aria-describedby={isFullApproval ? undefined : `approved-bounds-${item.id}`}
                   />
-                  <span id={`approved-bounds-${item.id}`} className="sr-only">Between {item.approvedQuantity} and {item.requestedQuantity}</span>
+                  {!isFullApproval && <span id={`approved-bounds-${item.id}`} className="sr-only">Between {item.approvedQuantity} and {item.requestedQuantity}</span>}
                 </div>
               ))}
             </fieldset>
