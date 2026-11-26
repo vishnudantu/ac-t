@@ -1,4 +1,5 @@
-﻿import type { Prisma } from '@prisma/client'
+import { availableForPurpose, purposeAllocations } from '@/lib/purpose-balances'
+import type { Prisma } from '@prisma/client'
 import { LifecycleRuleError } from '@/lib/lifecycle-rules'
 
 type AllocationRequest = Prisma.RequestGetPayload<{
@@ -25,14 +26,16 @@ export async function allocateFinalApproval(
   const requesterById = new Map(requesters.map((requester) => [requester.id, requester]))
   const pools = await tx.inventoryPool.findMany({
     where: { matchId: request.matchId, ticketCategoryId: { in: request.items.map((item) => item.ticketCategoryId) } },
+    include: { allocations: purposeAllocations },
     orderBy: [{ standName: 'asc' }, { blockName: 'asc' }, { id: 'asc' }],
   })
   const quantities = new Map(decisions.map((decision) => [decision.requestItemId, decision.approvedQuantity]))
-  const available = new Map(pools.map((pool) => [pool.id, pool.availableQuantity]))
+  const purpose = request.preferredType ?? 'COMPLIMENTARY'
+  const initial = new Map(pools.map(pool => [pool.id, availableForPurpose(pool, purpose)]))
+  const available = new Map(initial)
   const items: Prisma.AllocationItemUncheckedCreateWithoutAllocationInput[] = []
   const quotaUse = new Map<string, number>()
   const categoryQuotaUse = new Map<string, number>()
-  const purpose = request.preferredType ?? 'COMPLIMENTARY'
 
   for (const item of [...request.items].sort((a, b) => a.id.localeCompare(b.id))) {
     const approved = quantities.get(item.id) ?? 0
@@ -52,7 +55,7 @@ export async function allocateFinalApproval(
     )) : 0
     const stand = item.preferredStand ?? request.preferredStand
     const eligible = pools.filter((pool) => pool.ticketCategoryId === item.ticketCategoryId
-      && pool.ticketPurpose === purpose
+      && (pool.ticketPurpose === purpose || pool.ticketPurpose === 'MIXED')
       && (!stand || pool.standName === stand)
       && (!item.preferredBlock || pool.blockName === item.preferredBlock)
       && (pool.quotaPoolId ? pool.quotaPoolId === quota?.id : !pool.isQuotaPool))
@@ -96,7 +99,7 @@ export async function allocateFinalApproval(
   } })
   for (const pool of pools) {
     const next = available.get(pool.id) ?? pool.availableQuantity
-    const quantity = pool.availableQuantity - next
+    const quantity = (initial.get(pool.id) ?? 0) - next
     if (!quantity) continue
     const result = await tx.inventoryPool.updateMany({
       where: { id: pool.id, availableQuantity: pool.availableQuantity },
@@ -109,7 +112,7 @@ export async function allocateFinalApproval(
       oldValues: JSON.stringify({ availableQuantity: pool.availableQuantity, allocatedQuantity: pool.allocatedQuantity }),
       newValues: JSON.stringify({
         requestId: request.id, allocationId: allocation.id, categoryId: pool.ticketCategoryId, quantity,
-        availableQuantity: next, allocatedQuantity: pool.allocatedQuantity + quantity,
+        availableQuantity: pool.availableQuantity - quantity, allocatedQuantity: pool.allocatedQuantity + quantity,
       }),
     } })
   }

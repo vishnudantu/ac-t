@@ -247,12 +247,13 @@ export default function QuotasPage() {
                       <TableHead className="text-right">Complimentary</TableHead>
                       <TableHead className="text-right">Purchase</TableHead>
                       <TableHead className="text-right">Unclassified</TableHead>
+                      <TableHead>Available (Comp / Purchase)</TableHead><TableHead>Issued (Comp / Purchase)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {data.inventoryByCategory.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">No inventory pools found</TableCell>
+                        <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">No inventory pools found</TableCell>
                       </TableRow>
                     ) : data.inventoryByCategory.map((row) => (
                       <TableRow key={row.categoryId}>
@@ -261,6 +262,7 @@ export default function QuotasPage() {
                         <TableCell className="text-right tabular-nums">{formatNumber(row.complimentary)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatNumber(row.purchase)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatNumber(row.unclassified)}</TableCell>
+                        <TableCell>{row.complimentaryAvailable} / {row.purchaseAvailable}</TableCell><TableCell>{row.complimentaryIssued} / {row.purchaseIssued}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

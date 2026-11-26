@@ -9,6 +9,7 @@ export interface RequestItemRecord {
 }
 
 export interface ApprovalStepRecord {
+  quickApproval?: boolean
   id: string
   requestId: string
   stepOrder: number

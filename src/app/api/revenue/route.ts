@@ -1,3 +1,4 @@
+import { purposeAllocations, purposeBalances } from '@/lib/purpose-balances'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hasPermission } from '@/lib/auth'
@@ -20,7 +21,7 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     prisma.inventoryPool.findMany({
       where: matchId ? { matchId } : undefined,
       select: {
-        ticketPurpose: true, pricingUnit: true, totalQuantity: true, faceValue: true, issuedQuantity: true,
+        allocations: purposeAllocations, availableQuantity: true, allocatedQuantity: true, purchaseQuantity: true, complimentaryQuantity: true, ticketPurpose: true, pricingUnit: true, totalQuantity: true, faceValue: true, issuedQuantity: true,
         ticketCategory: { select: { displayName: true } },
         match: { select: { id: true, title: true } },
       },
@@ -43,11 +44,10 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
   const rows = pools.map((pool) => {
     const issued = pool.issuedQuantity
     const purpose = pool.ticketPurpose
-    const unclassifiedIssued = purpose === 'COMPLIMENTARY' || purpose === 'PURCHASE' ? 0 : issued
-    const complimentaryIssued = purpose === 'COMPLIMENTARY' ? issued : 0
-    const saleIssued = purpose === 'PURCHASE' ? issued : 0
+    const { complimentaryIssued, purchaseIssued: saleIssued } = purposeBalances(pool)
+    const unclassifiedIssued = issued - complimentaryIssued - saleIssued
     const complimentaryRevenue = nominalComplimentary * complimentaryIssued
-    const saleRevenue = purpose === 'PURCHASE' ? purchaseIssueValue(pool) : 0
+    const saleRevenue = purchaseIssueValue({ ...pool, issuedQuantity: saleIssued })
     return {
       purpose, matchTitle: pool.match.title, category: pool.ticketCategory.displayName,
       complimentaryIssued, saleIssued, unclassifiedIssued,

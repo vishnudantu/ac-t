@@ -3,6 +3,7 @@ import type { SessionPayload } from '../src/lib/auth'
 
 const getSessionMock = jest.fn<Promise<SessionPayload | null>, []>()
 const prismaMock = {
+  systemSetting: { findUnique: jest.fn().mockResolvedValue(null) },
   roleAssignment: { findMany: jest.fn() },
   approvalStep: { findMany: jest.fn(), count: jest.fn() },
   approvalWorkflow: { findFirst: jest.fn() },

@@ -1,3 +1,4 @@
+import { godModeUser } from '@/lib/god-mode'
 import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { z, ZodError } from 'zod'
@@ -5,6 +6,7 @@ import { getSession, hasPermission, hasRole, type SessionPayload } from '@/lib/a
 import { sendNotification } from '@/lib/notifications'
 import {
   approvalActionSchema,
+  buildApprovalActionSchema,
   approvalListQuerySchema,
   approvalRevisionSchema,
   assertApprovalSequence,
@@ -41,6 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // APPROVAL_AUTHORITY steps are invisible to the seeded super admin.
     const overseeAll = hasRole(session.roles, 'SUPER_ADMIN') || hasPermission(session.permissions, 'approvals:escalate')
     const where = approvalWhere(session.userId, roleIds, query.status, overseeAll)
+    const designatedUser = await godModeUser(prisma)
     const [steps, total] = await prisma.$transaction([
       prisma.approvalStep.findMany({
         where,
@@ -60,7 +63,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }),
       prisma.approvalStep.count({ where }),
     ])
-    return NextResponse.json({ success: true, steps, total })
+    return NextResponse.json({ success: true, steps: steps.map(step => ({ ...step,
+      quickApproval: session.userId === designatedUser &&
+        (step.assignedToId === session.userId || (step.assignedRoleId !== null && roleIds.includes(step.assignedRoleId))),
+    })), total })
   } catch (error: unknown) {
     return handleError(error, 'Failed to list approval steps')
   }
@@ -71,8 +77,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const session = await getSession()
     if (!session) return responseError('Unauthorized', 401)
     if (!hasPermission(session.permissions, 'approvals:decide')) return responseError('Forbidden', 403)
-    const input = z.union([approvalRevisionSchema, approvalActionSchema]).parse(await request.json())
+    const body = await request.json()
+    const withoutNotes = (body?.action === 'APPROVE' || body?.action === 'PARTIAL') && !body?.remarks?.trim?.()
+    const allowQuick = withoutNotes && await godModeUser(prisma) === session.userId
+    const input = z.union([approvalRevisionSchema, buildApprovalActionSchema(allowQuick)]).parse(body)
     const result = await prisma.$transaction(async (tx) => {
+      if (allowQuick && await godModeUser(tx) !== session.userId) throw new LifecycleRuleError('GOD Mode is no longer enabled', 403)
       const roleIds = await activeRoleIds(tx, session.userId)
       const overseeAll = hasRole(session.roles, 'SUPER_ADMIN') || hasPermission(session.permissions, 'approvals:escalate')
       const step = overseeAll
@@ -86,6 +96,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         : await findAssignedStep(tx, input.stepId, session.userId, roleIds)
       const mayEscalate = overseeAll && step.stepDefinition.allowEscalation && step.deadlineAt && step.deadlineAt <= new Date()
       const assigned = step.assignedToId === session.userId || (step.assignedRoleId !== null && roleIds.includes(step.assignedRoleId))
+      if (input.action !== 'REVISE' && !input.remarks && !assigned) throw new LifecycleRuleError('Quick approval requires an assigned step', 403)
       if (!hasRole(session.roles, 'SUPER_ADMIN') && !mayEscalate) {
         if (!assigned) throw new LifecycleRuleError('This approval step is not assigned to the current user', 403)
         assertApproverAssigned(step, session.userId, session.roles)

@@ -1,3 +1,4 @@
+import { purposeAllocations, purposeBalances } from '@/lib/purpose-balances'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hasPermission } from '@/lib/auth'
@@ -32,7 +33,7 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     })
     const pools = await tx.inventoryPool.findMany({
       where,
-      select: { ticketPurpose: true, pricingUnit: true, totalQuantity: true, faceValue: true, issuedQuantity: true },
+      select: { allocations: purposeAllocations, availableQuantity: true, allocatedQuantity: true, purchaseQuantity: true, complimentaryQuantity: true, ticketPurpose: true, pricingUnit: true, totalQuantity: true, faceValue: true, issuedQuantity: true },
     })
     const setoff = await tx.systemSetting.findUnique({ where: { key: 'pricing.complimentary_setoff_per_ticket' }, select: { value: true } })
     const setoffPerTicket = Number(setoff?.value || 499)
@@ -44,7 +45,10 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       bucket.issued += pool.issuedQuantity
       if (purpose === 'COMPLIMENTARY' && bucket.value !== null) bucket.value += setoffPerTicket * pool.issuedQuantity
       if (pool.issuedQuantity > 0 && purpose !== 'COMPLIMENTARY') {
-        const value = purpose === 'PURCHASE' ? purchaseIssueValue(pool) : null
+        const balance = purposeBalances(pool)
+        const sale = purchaseIssueValue({ ...pool, issuedQuantity: balance.purchaseIssued })
+        const value = sale !== null && balance.complimentaryIssued + balance.purchaseIssued === pool.issuedQuantity
+          ? sale + balance.complimentaryIssued * setoffPerTicket : null
         bucket.value = value === null || bucket.value === null ? null : bucket.value + value
       }
       acc[purpose] = bucket

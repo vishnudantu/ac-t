@@ -1,3 +1,4 @@
+import { purposeAllocations, purposeBalances } from '@/lib/purpose-balances'
 import { NextRequest, NextResponse } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
@@ -27,6 +28,7 @@ export const GET = withApiHandler(async (request: NextRequest, session: SessionP
         match: { select: { id: true, title: true } },
         ticketCategory: { select: { id: true, name: true, displayName: true, colorCode: true } },
         quotaPool: { select: { id: true, name: true, displayName: true } },
+        allocations: purposeAllocations,
         _count: { select: { ticketSerials: true, allocations: true } },
       },
       orderBy: [{ matchId: 'asc' }, { ticketCategory: { sortOrder: 'asc' } }, { standName: 'asc' }],
@@ -39,7 +41,7 @@ export const GET = withApiHandler(async (request: NextRequest, session: SessionP
       allocatedQuantity: true, issuedQuantity: true, returnedQuantity: true, voidQuantity: true,
     } }),
   ])
-  return NextResponse.json({ success: true, inventory, total, summary: {
+  return NextResponse.json({ success: true, inventory: inventory.map(({ allocations, ...pool }) => ({ ...pool, balances: purposeBalances({ ...pool, allocations }) })), total, summary: {
     total: aggregate._sum.totalQuantity || 0,
     reserved: aggregate._sum.reservedQuantity || 0,
     available: aggregate._sum.availableQuantity || 0,

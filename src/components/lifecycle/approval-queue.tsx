@@ -1,5 +1,6 @@
 "use client"
 
+import { postLifecycle } from "./client"
 import Link from "next/link"
 import { useState } from "react"
 import { ArrowUp, Check, ClipboardCheck, Split, X } from "lucide-react"
@@ -26,6 +27,24 @@ export function ApprovalQueue({ steps, canDecide, historical, filtered, onClear,
   const [selected, setSelected] = useState<ApprovalStepRecord | null>(null)
   const [action, setAction] = useState<ApprovalAction>("APPROVE")
 
+  const [saving, setSaving] = useState(false)
+  const [decisionError, setDecisionError] = useState("")
+  async function approveFull(step: ApprovalStepRecord) {
+    setSaving(true)
+    setDecisionError("")
+    try {
+      await postLifecycle("/api/approvals", {
+        stepId: step.id, requestVersion: step.request.version, action: "APPROVE",
+        items: step.request.items.map(item => ({ requestItemId: item.id, approvedQuantity: item.requestedQuantity })),
+      })
+      await onDecided()
+    } catch (error) {
+      setDecisionError(error instanceof Error ? error.message : "Approval failed")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function openDecision(step: ApprovalStepRecord, decision: ApprovalAction) {
     setSelected(step)
     setAction(decision)
@@ -37,6 +56,7 @@ export function ApprovalQueue({ steps, canDecide, historical, filtered, onClear,
 
   return (
     <div className="space-y-3">
+      {decisionError && <p role="alert">{decisionError}</p>}
       {steps.map((step) => {
         const request = step.request
         const actionable = canDecide && !historical && ["PENDING", "IN_PROGRESS"].includes(step.status)
@@ -74,7 +94,8 @@ export function ApprovalQueue({ steps, canDecide, historical, filtered, onClear,
               </div>
               {actionable && (
                 <div className="mt-4 flex flex-wrap gap-2" aria-label={`Decide ${request.requestNumber}`}>
-                  <Button size="sm" onClick={() => openDecision(step, "APPROVE")}><Check className="mr-2 h-4 w-4" />Approve</Button>
+                  {step.quickApproval && <Button size="sm" disabled={saving} onClick={() => void approveFull(step)}>Approve full ({request.totalRequested})</Button>}
+                  <Button size="sm" onClick={() => openDecision(step, "APPROVE")}><Check className="mr-2 h-4 w-4" />{step.quickApproval ? "Review request" : "Approve"}</Button>
                   {step.stepDefinition.allowPartialApproval && <Button size="sm" variant="outline" onClick={() => openDecision(step, "PARTIAL")}><Split className="mr-2 h-4 w-4" />Partial</Button>}
                   {step.stepDefinition.allowReturnForClarification && <Button size="sm" variant="outline" onClick={() => openDecision(step, "RETURN")}><ArrowUp className="mr-2 h-4 w-4" />Return</Button>}
                   <Button size="sm" variant="destructive" onClick={() => openDecision(step, "REJECT")}><X className="mr-2 h-4 w-4" />Reject</Button>

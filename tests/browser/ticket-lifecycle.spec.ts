@@ -12,7 +12,7 @@ test.beforeAll(async () => {
   const permissions = [
     'matches:read', 'requests:read', 'requests:write', 'approvals:read', 'approvals:decide',
     'allocations:read', 'allocations:confirm', 'distribution:read', 'distribution:issue',
-    'inventory:read', 'quotas:read', 'reports:read',
+    'inventory:read', 'quotas:read', 'reports:read', 'users:read', 'users:write', 'users:assign_roles',
   ]
   const role = await prisma.role.upsert({ where: { name: 'BROWSER_TESTER' }, update: {}, create: {
     name: 'BROWSER_TESTER', displayName: 'Browser tester',
@@ -37,7 +37,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page).toHaveURL(/\/dashboard(?:\?.*)?$/)
 })
 
-async function createFixture(stock = 10) {
+async function createFixture(stock = 10, approverId = officerId) {
   const key = randomUUID()
   const match = await prisma.match.create({ data: {
     title: 'Test match ' + key, format: 'T20', matchDate: new Date(Date.now() + 86_400_000), startTime: '10:00',
@@ -57,21 +57,21 @@ async function createFixture(stock = 10) {
   } })
   await prisma.approvalWorkflow.create({ data: {
     matchId: match.id, name: 'Test workflow', isDefault: true,
-    steps: { create: { stepOrder: 1, name: 'Final approval', approverUserId: officerId } },
+    steps: { create: { stepOrder: 1, name: 'Final approval', approverUserId: approverId } },
   } })
   return { match, category, quota, requester, pool }
 }
 
 type Fixture = Awaited<ReturnType<typeof createFixture>>
 
-async function submitRequest(page: Page, fixture: Fixture, quantity = 5, explicitComplimentary = false) {
+async function submitRequest(page: Page, fixture: Fixture, quantity = 5, explicitType?: 'COMPLIMENTARY' | 'PURCHASE') {
   await page.goto('/requests/new')
   await page.getByRole('combobox', { name: /^Match\s*\*?$/ }).selectOption(fixture.match.id)
   await page.getByRole('combobox', { name: /^Requester\s*\*?$/ }).selectOption(fixture.requester.id)
   await page.getByRole('combobox', { name: /^Category 1\s*\*?$/ }).selectOption(fixture.category.id)
   await page.getByRole('spinbutton', { name: /^Quantity\s*\*?$/ }).fill(String(quantity))
   const type = page.getByRole('combobox', { name: /^Ticket type/ })
-  if (explicitComplimentary) await type.selectOption('COMPLIMENTARY')
+  if (explicitType) await type.selectOption(explicitType)
   else await expect(type.locator('option:checked')).toContainText('From inventory')
   await page.getByRole('button', { name: 'Submit request' }).click()
   await expect(page).toHaveURL(/\/requests\/(?!new)[^/?]+$/)
@@ -201,7 +201,7 @@ test('insufficient stock is shown in the approval dialog without committing anyt
 test('revises a complimentary request to purchase before approving 25 eligible tickets', async ({ page }) => {
   const fixture = await createFixture(25)
   await prisma.inventoryPool.update({ where: { id: fixture.pool.id }, data: { ticketPurpose: 'PURCHASE' } })
-  const original = await submitRequest(page, fixture, 2, true)
+  const original = await submitRequest(page, fixture, 2, 'COMPLIMENTARY')
   await page.goto('/approvals')
   await page.getByLabel('Filter approval steps on this page').fill(original.requestNumber)
   await page.getByRole('button', { name: 'Approve', exact: true }).click()
@@ -250,7 +250,7 @@ test('revises a complimentary request to purchase before approving 25 eligible t
   await page.goto('/quotas')
   await page.getByRole('combobox', { name: 'Match', exact: true }).selectOption(fixture.match.id)
   const purposeRow = page.getByRole('row').filter({ hasText: fixture.match.title })
-  await expect(purposeRow.getByRole('cell')).toHaveText([fixture.match.title, 'Suite-5', '0', '25', '0'])
+  await expect(purposeRow.getByRole('cell')).toHaveText([fixture.match.title, 'Suite-5', '0', '25', '0', '0 / 0', '0 / 0'])
   const quotaTotals = page.getByRole('region', { name: 'Quota totals' })
   for (const [label, value] of [['Total allocation', '10'], ['Consumed', '0'], ['Remaining', '10']]) {
     await expect(quotaTotals.getByText(label, { exact: true }).locator('+ p')).toHaveText(value)
@@ -271,4 +271,111 @@ test('Suite-5 purchase inventory supplies the request type through final approva
   expect(request.preferredType).toBe('PURCHASE')
   await approve(page, request)
   await expectBalances(fixture, 0, 25, 0, 0)
+})
+
+
+test('Mixed inventory keeps purchase and complimentary balances through issuance', async ({ page }) => {
+  test.setTimeout(180_000)
+  const fixture = await createFixture(10)
+  // Independent applicants draw on the same pool and organisation quota.
+  const applicant = (label: string, mobileNumber: string) => prisma.requester.create({ data: {
+    fullName: label + ' ' + randomUUID(), requesterCategory: 'OTHER',
+    mobileNumber, organisationId: fixture.requester.organisationId,
+  } })
+  const complimentaryApplicant = await applicant('Complimentary applicant', '+919000000002')
+  const overflowApplicant = await applicant('Overflow applicant', '+919000000003')
+  await prisma.inventoryPool.update({ where: { id: fixture.pool.id }, data: {
+    ticketPurpose: 'MIXED', complimentaryQuantity: 4, purchaseQuantity: 6,
+  } })
+  for (const [type, quantity] of [['PURCHASE', 6], ['COMPLIMENTARY', 3]] as const) {
+    const requester = type === 'PURCHASE' ? fixture.requester : complimentaryApplicant
+    const request = await submitRequest(page, { ...fixture, requester }, quantity, type)
+    const allocation = await approve(page, request)
+    await page.goto('/distribution')
+    await page.getByRole('button', { name: 'Issue tickets', exact: true }).click()
+    const issue = page.getByRole('dialog', { name: 'Issue tickets' })
+    await issue.getByLabel('Confirmed allocation item').selectOption(allocation.items[0].id)
+    await issue.getByLabel('Quantity').fill('2')
+    await issue.getByLabel('Recipient name').fill('Synthetic collector')
+    await issue.getByRole('button', { name: 'Issue tickets' }).click()
+    await expect(issue).toBeHidden()
+  }
+  await expectBalances(fixture, 1, 9, 4, 3)
+  const expected = { complimentaryAvailable: 1, purchaseAvailable: 0, complimentaryIssued: 2, purchaseIssued: 2 }
+  const query = '?matchId=' + fixture.match.id
+  const inventory = await page.request.get('/api/inventory' + query)
+  const quotas = await page.request.get('/api/quotas' + query)
+  const reports = await page.request.get('/api/reports' + query + '&view=pools')
+  expect((await inventory.json()).inventory[0].balances).toEqual(expected)
+  expect((await quotas.json()).inventoryByCategory[0]).toMatchObject(expected)
+  expect((await reports.json()).detail.rows[0].slice(-4)).toEqual([1, 0, 2, 2])
+  const overflow = await submitRequest(page, { ...fixture, requester: overflowApplicant }, 1, 'PURCHASE')
+  const dialog = await decide(page, overflow.requestNumber, 1)
+  await expect(dialog.getByText(/shortage 1/)).toBeVisible()
+  await expectBalances(fixture, 1, 9, 4, 3)
+})
+
+test('GOD Mode checkbox grants only the selected user full and partial approval without notes', async ({ page, browser, baseURL }) => {
+  test.setTimeout(180_000)
+  const designatedEmail = randomUUID() + '@example.test'
+  const role = await prisma.role.findUniqueOrThrow({ where: { name: 'BROWSER_TESTER' } })
+  await page.goto('/admin/users')
+  await page.getByRole('button', { name: 'New user' }).click()
+  const create = page.getByRole('dialog', { name: 'Create user' })
+  await create.getByLabel('Full name').fill('Designated approver')
+  await create.getByLabel('Email').fill(designatedEmail)
+  await create.getByLabel(/Temporary password/).fill(password)
+  await create.getByLabel('Global role').selectOption(role.id)
+  const checkbox = create.getByRole('checkbox', { name: /GOD Mode/ })
+  await expect(checkbox).not.toBeChecked()
+  await checkbox.check()
+  await create.getByRole('button', { name: 'Create user' }).click()
+  await expect(create).toBeHidden()
+  const designated = await prisma.user.findUniqueOrThrow({ where: { email: designatedEmail } })
+
+  const context = await browser.newContext({ baseURL })
+  try {
+    const approver = await context.newPage()
+    await approver.goto('/login')
+    await approver.getByLabel('Email').fill(designatedEmail)
+    await approver.getByLabel('Password', { exact: true }).fill(password)
+    await approver.getByRole('button', { name: 'Sign in' }).click()
+    await expect(approver).toHaveURL(/\/dashboard/)
+    for (const quantity of [5, 2]) {
+      const fixture = await createFixture(10, designated.id)
+      const request = await submitRequest(page, fixture, 5)
+      await approver.goto('/approvals')
+      await approver.getByLabel('Filter approval steps on this page').fill(request.requestNumber)
+      if (quantity === 5) {
+        await approver.getByRole('button', { name: 'Approve full (5)', exact: true }).click()
+      } else {
+        await approver.getByRole('button', { name: 'Partial', exact: true }).click()
+        const partial = approver.getByRole('dialog', { name: 'Record partial approval' })
+        await partial.getByRole('spinbutton', { name: 'Suite-5' }).fill('2')
+        await partial.getByRole('button', { name: 'Record partial approval' }).click()
+        await expect(partial).toBeHidden()
+      }
+      await expect.poll(() => prisma.approvalDecision.count({ where: { requestId: request.id, decidedById: designated.id, approvedQty: quantity, remarks: '', confidentialRemarks: null } })).toBe(1)
+      await expectBalances(fixture, 10 - quantity, quantity, 0, quantity)
+    }
+
+    const fixture = await createFixture()
+    const ordinary = await submitRequest(page, fixture, 5)
+    await page.goto('/approvals')
+    await page.getByLabel('Filter approval steps on this page').fill(ordinary.requestNumber)
+    await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Approve full/ })).toHaveCount(0)
+    const step = await prisma.approvalStep.findFirstOrThrow({ where: { requestId: ordinary.id } })
+    const item = await prisma.requestItem.findFirstOrThrow({ where: { requestId: ordinary.id } })
+    for (const action of ['APPROVE', 'PARTIAL']) {
+      const response = await page.request.post('/api/approvals', { data: {
+        stepId: step.id, action, requestVersion: ordinary.version,
+        items: [{ requestItemId: item.id, approvedQuantity: action === 'PARTIAL' ? 2 : 5 }],
+      } })
+      expect(response.status()).toBe(400)
+    }
+    await expectBalances(fixture, 10, 0, 0, 0)
+  } finally {
+    await context.close()
+  }
 })

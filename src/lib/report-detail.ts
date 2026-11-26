@@ -1,3 +1,4 @@
+import { purposeAllocations, purposeBalances } from '@/lib/purpose-balances'
 import type { Prisma } from '@prisma/client'
 import { inventoryPurposeTotals } from './inventory-purpose'
 
@@ -11,17 +12,18 @@ export interface DetailTable {
 export async function readReportDetail(tx: Prisma.TransactionClient, view: DetailView, matchId?: string): Promise<DetailTable> {
   if (view === 'pools') {
     const pools = await tx.inventoryPool.findMany({
-      where: { matchId }, include: { match: { select: { title: true } }, ticketCategory: { select: { displayName: true } } },
+      where: { matchId }, include: { allocations: purposeAllocations, match: { select: { title: true } }, ticketCategory: { select: { displayName: true } } },
       orderBy: [{ matchId: 'asc' }, { standName: 'asc' }, { id: 'asc' }],
     })
     return {
-      headers: ['Match', 'Category', 'Stand', 'Block', 'Gate', 'Format', 'Pool purpose', 'Pricing unit', 'Face value (INR)', 'Total', 'Complimentary stock', 'Purchase stock', 'Unclassified stock', 'Available', 'Reserved', 'Allocated unissued', 'Issued', 'Returned', 'Void'],
+      headers: ['Match', 'Category', 'Stand', 'Block', 'Gate', 'Format', 'Pool purpose', 'Pricing unit', 'Face value (INR)', 'Total', 'Complimentary stock', 'Purchase stock', 'Unclassified stock', 'Available', 'Reserved', 'Allocated unissued', 'Issued', 'Returned', 'Void', 'Complimentary available', 'Purchase available', 'Complimentary issued', 'Purchase issued'],
       rows: pools.map(p => {
         const split = inventoryPurposeTotals(p)
+        const balance = purposeBalances(p)
         return [p.match.title, p.ticketCategory.displayName, p.standName, p.blockName, p.gateName, p.ticketFormat,
           p.ticketPurpose, p.pricingUnit, p.faceValue === null ? null : Number(p.faceValue), p.totalQuantity,
           split.complimentary, split.purchase, split.unclassified, p.availableQuantity, p.reservedQuantity,
-          p.allocatedQuantity - p.issuedQuantity, p.issuedQuantity, p.returnedQuantity, p.voidQuantity]
+          p.allocatedQuantity - p.issuedQuantity, p.issuedQuantity, p.returnedQuantity, p.voidQuantity, balance.complimentaryAvailable, balance.purchaseAvailable, balance.complimentaryIssued, balance.purchaseIssued]
       }),
     }
   }

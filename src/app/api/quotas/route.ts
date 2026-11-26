@@ -1,3 +1,4 @@
+import { purposeAllocations, purposeBalances } from '@/lib/purpose-balances'
 import { NextRequest, NextResponse } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
@@ -29,7 +30,7 @@ export const GET = withApiHandler(async (request: NextRequest, session: SessionP
     hasPermission(session.permissions, 'inventory:read') ? tx.inventoryPool.findMany({
       where: { matchId: query.matchId },
       select: {
-        ticketPurpose: true, totalQuantity: true, complimentaryQuantity: true, purchaseQuantity: true,
+        allocations: purposeAllocations, availableQuantity: true, allocatedQuantity: true, issuedQuantity: true, ticketPurpose: true, totalQuantity: true, complimentaryQuantity: true, purchaseQuantity: true,
         ticketCategory: { select: { id: true, displayName: true } },
         match: { select: { title: true } },
       },
@@ -38,14 +39,21 @@ export const GET = withApiHandler(async (request: NextRequest, session: SessionP
   ]))
   const byCategory = new Map<string, {
     categoryId: string; category: string; match: string; complimentary: number; purchase: number; unclassified: number
+    complimentaryAvailable: number; purchaseAvailable: number; complimentaryIssued: number; purchaseIssued: number
   }>()
   for (const pool of pools ?? []) {
     const id = pool.ticketCategory.id
     const current = byCategory.get(id) ?? {
       categoryId: id, category: pool.ticketCategory.displayName, match: pool.match.title,
       complimentary: 0, purchase: 0, unclassified: 0,
+      complimentaryAvailable: 0, purchaseAvailable: 0, complimentaryIssued: 0, purchaseIssued: 0,
     }
     const split = inventoryPurposeTotals(pool)
+    const balance = purposeBalances(pool)
+    current.complimentaryAvailable += balance.complimentaryAvailable
+    current.purchaseAvailable += balance.purchaseAvailable
+    current.complimentaryIssued += balance.complimentaryIssued
+    current.purchaseIssued += balance.purchaseIssued
     current.complimentary += split.complimentary
     current.purchase += split.purchase
     current.unclassified += split.unclassified

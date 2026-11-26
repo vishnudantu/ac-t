@@ -1,3 +1,4 @@
+import { availableForPurpose, purposeAllocations } from '@/lib/purpose-balances'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -24,7 +25,7 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     where: { matchId, isActive: true },
     select: {
       id: true, name: true, displayName: true, sortOrder: true,
-      inventoryPools: { select: { ticketPurpose: true, totalQuantity: true, availableQuantity: true, allocatedQuantity: true, issuedQuantity: true, voidQuantity: true } },
+      inventoryPools: { select: { ticketPurpose: true, allocations: purposeAllocations, complimentaryQuantity: true, purchaseQuantity: true, totalQuantity: true, availableQuantity: true, allocatedQuantity: true, issuedQuantity: true, voidQuantity: true } },
       requestItems: {
         where: { request: { status: { in: ['APPROVED', 'PARTIALLY_APPROVED'] } } },
         select: { approvedQuantity: true, allocatedQuantity: true },
@@ -49,8 +50,8 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       allocated,
       approved,
       remaining,
-      complimentaryStock: category.inventoryPools.reduce((sum, pool) => sum + (pool.ticketPurpose === 'COMPLIMENTARY' ? pool.availableQuantity : 0), 0),
-      purchaseStock: category.inventoryPools.reduce((sum, pool) => sum + (pool.ticketPurpose === 'PURCHASE' ? pool.availableQuantity : 0), 0),
+      complimentaryStock: category.inventoryPools.reduce((sum, pool) => sum + availableForPurpose(pool, 'COMPLIMENTARY'), 0),
+      purchaseStock: category.inventoryPools.reduce((sum, pool) => sum + availableForPurpose(pool, 'PURCHASE'), 0),
       unallocatedApproved,
       issuable: Math.max(0, remaining - unallocatedApproved),
 

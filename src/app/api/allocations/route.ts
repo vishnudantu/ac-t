@@ -1,3 +1,4 @@
+import { availableForPurpose, purposeAllocations } from '@/lib/purpose-balances'
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { generateAllocationNumber } from '@/lib/utils'
@@ -47,7 +48,7 @@ export const POST = withApiHandler(async (request: NextRequest, session: Session
       if (!['APPROVED', 'PARTIALLY_APPROVED'].includes(requestRecord.status)) throw new ApiError(409, 'Only approved requests can be allocated')
       if (requestRecord.items.length === 0) throw new ApiError(422, 'Request has no items to allocate')
       const requestItems = new Map(requestRecord.items.map((item) => [item.id, item]))
-      const pools = await tx.inventoryPool.findMany({ where: { id: { in: data.items.map((item) => item.inventoryPoolId) } } })
+      const pools = await tx.inventoryPool.findMany({ where: { id: { in: data.items.map((item) => item.inventoryPoolId) } }, include: { allocations: purposeAllocations } })
       const poolById = new Map(pools.map((pool) => [pool.id, pool]))
       const itemQuantities = new Map<string, number>()
       const poolQuantities = new Map<string, number>()
@@ -64,7 +65,7 @@ export const POST = withApiHandler(async (request: NextRequest, session: Session
         if ((item.quotaPoolId ?? null) !== quotaId
           || (pool.isQuotaPool && !pool.quotaPoolId)
           || (pool.quotaPoolId && pool.quotaPoolId !== quotaId)
-          || pool.ticketPurpose !== purpose) {
+          || (pool.ticketPurpose !== purpose && pool.ticketPurpose !== 'MIXED')) {
           throw new ApiError(409, 'Inventory or quota is ineligible for this requester and ticket type')
         }
         itemQuantities.set(item.requestItemId, (itemQuantities.get(item.requestItemId) || 0) + item.quantity)
@@ -77,7 +78,7 @@ export const POST = withApiHandler(async (request: NextRequest, session: Session
       }
       for (const [id, quantity] of poolQuantities) {
         const pool = poolById.get(id)
-        if (!pool || quantity > pool.availableQuantity) throw new ApiError(409, 'Allocation exceeds available inventory')
+        if (!pool || quantity > availableForPurpose(pool, requestRecord.preferredType ?? 'COMPLIMENTARY')) throw new ApiError(409, 'Allocation exceeds available inventory')
       }
       for (const [id, quantity] of quotaQuantities) {
         const quota = await tx.quotaPool.findUnique({ where: { id }, include: { quotaAllocations: true } })
