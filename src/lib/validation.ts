@@ -71,7 +71,7 @@ const TICKET_FORMATS = ['PHYSICAL', 'DIGITAL', 'BOTH'] as const
 // Allocation enums
 // ---------------------------------------------------------------------------
 
-const ALLOCATION_STATUSES = ['DRAFT', 'PENDING_REVIEW', 'CONFIRMED', 'LOCKED', 'RELEASED'] as const
+const ALLOCATION_STATUSES = ['DRAFT', 'PENDING_REVIEW', 'CONFIRMED', 'LOCKED', 'RELEASED', 'CANCELLED'] as const
 const ALLOCATION_ITEM_STATUSES = ['RESERVED', 'CONFIRMED', 'RELEASED'] as const
 
 // ===========================================================================

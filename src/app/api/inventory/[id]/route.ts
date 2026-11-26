@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { hasPermission, hasRole } from '@/lib/auth'
-import { withApiHandler } from '@/lib/api'
+import { ApiError, withApiHandler } from '@/lib/api'
 
 interface Context { params: Promise<{ id: string }> }
 const updateSchema = z.object({
+  adjustmentReason: z.string().trim().min(1).max(2000).optional(),
   totalQuantity: z.number().int().min(0).max(2_000_000).optional(),
   standName: z.string().trim().min(1).max(250).optional(),
   blockName: z.string().trim().max(100).nullish(),
@@ -34,19 +35,23 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
   const pool = await prisma.$transaction(async (tx) => {
     const current = await tx.inventoryPool.findUnique({ where: { id } })
     if (!current) return null
-    if (data.totalQuantity !== undefined) {
-      const committed = current.allocatedQuantity + current.issuedQuantity + current.voidQuantity
-      if (data.totalQuantity < committed) throw new Error(`Total quantity cannot be below ${committed} allocated, issued, or void tickets`)
-      await tx.match.update({ where: { id: current.matchId }, data: { totalInventory: { increment: data.totalQuantity - current.totalQuantity } } })
+    const delta = (data.totalQuantity ?? current.totalQuantity) - current.totalQuantity
+    if (delta < -current.availableQuantity) {
+      throw new ApiError(409, 'Stock reduction exceeds this pool?s available quantity')
     }
-    const updated = await tx.inventoryPool.update({ where: { id }, data: {
-      ...data,
-      ...(data.totalQuantity !== undefined ? { availableQuantity: data.totalQuantity - current.allocatedQuantity - current.issuedQuantity - current.voidQuantity } : {}),
-    } })
+    const { adjustmentReason, ...changes } = data
+    if (delta && !adjustmentReason) throw new ApiError(400, 'A reason is required to change stock quantity')
+    const claim = await tx.inventoryPool.updateMany({
+      where: { id, availableQuantity: current.availableQuantity, updatedAt: current.updatedAt },
+      data: { ...changes, ...(delta ? { availableQuantity: { increment: delta } } : {}) },
+    })
+    if (claim.count !== 1) throw new ApiError(409, 'Inventory changed. Refresh before adjusting the pool.')
+    if (delta) await tx.match.update({ where: { id: current.matchId }, data: { totalInventory: { increment: delta } } })
+    const updated = await tx.inventoryPool.findUniqueOrThrow({ where: { id } })
     await tx.auditEvent.create({ data: {
-      userId: session.userId, matchId: current.matchId, entityType: 'INVENTORY', entityId: id, action: 'ADJUST',
+      userId: session.userId, matchId: current.matchId, entityType: 'INVENTORY', entityId: id, action: 'ADJUST', reason: adjustmentReason,
       oldValues: JSON.stringify({ totalQuantity: current.totalQuantity, availableQuantity: current.availableQuantity }),
-      newValues: JSON.stringify({ totalQuantity: updated.totalQuantity, availableQuantity: updated.availableQuantity }), changedFields: Object.keys(data),
+      newValues: JSON.stringify({ totalQuantity: updated.totalQuantity, availableQuantity: updated.availableQuantity }), changedFields: Object.keys(changes),
     } })
     return updated
   })

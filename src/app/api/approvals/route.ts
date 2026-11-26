@@ -12,40 +12,11 @@ import {
   calculateApprovedTotals,
   LifecycleRuleError,
 } from '@/lib/lifecycle-rules'
+import { allocateFinalApproval } from '@/lib/final-approval-allocation'
 import { prisma } from '@/lib/prisma'
 
 type Transaction = Prisma.TransactionClient
 
-/**
- * Ensures the approved quantity for a category does not exceed the stakeholder's
- * remaining quota for that category. Runs inside the approval transaction so a
- * cap violation aborts the whole decision rather than leaving partial state.
- */
-async function assertApprovalWithinQuota(
-  tx: Transaction,
-  matchId: string,
-  decisions: Array<{ requestItemId: string; approvedQuantity: number }>,
-  requestItems: Array<{ id: string; ticketCategoryId: string }>,
-): Promise<void> {
-  const categoryByItem = new Map(requestItems.map((item) => [item.id, item.ticketCategoryId]))
-  const quantities = new Map<string, number>()
-  for (const decision of decisions) {
-    const categoryId = categoryByItem.get(decision.requestItemId)
-    if (categoryId) quantities.set(categoryId, (quantities.get(categoryId) ?? 0) + decision.approvedQuantity)
-  }
-  for (const [categoryId, approved] of quantities) {
-    const quota = await tx.quotaAllocation.aggregate({
-      where: { ticketCategoryId: categoryId, quotaPool: { matchId, isActive: true } },
-      _sum: { allocatedQuantity: true, consumedQuantity: true },
-    })
-    const allocated = quota._sum.allocatedQuantity ?? 0
-    const consumed = quota._sum.consumedQuantity ?? 0
-    const remaining = allocated - consumed
-    if (approved > remaining) {
-      throw new LifecycleRuleError(`Approval exceeds the remaining quota for this category. Remaining: ${Math.max(0, remaining)}`, 409)
-    }
-  }
-}
 type ApprovalInput = z.infer<typeof approvalActionSchema>
 type ApprovalStep = Prisma.ApprovalStepGetPayload<{
   include: {
@@ -112,7 +83,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           return step
         })
         : await findAssignedStep(tx, input.stepId, session.userId, roleIds)
-      if (!overseeAll) assertApproverAssigned(step, session.userId, session.roles)
+      const mayEscalate = overseeAll && step.stepDefinition.allowEscalation && step.deadlineAt && step.deadlineAt <= new Date()
+      const assigned = step.assignedToId === session.userId || (step.assignedRoleId !== null && roleIds.includes(step.assignedRoleId))
+      if (!hasRole(session.roles, 'SUPER_ADMIN') && !mayEscalate) {
+        if (!assigned) throw new LifecycleRuleError('This approval step is not assigned to the current user', 403)
+        assertApproverAssigned(step, session.userId, session.roles)
+      }
       if (!step.stepDefinition.isActive || !step.workflow.isActive) {
         throw new LifecycleRuleError('Approval workflow is inactive', 409)
       }
@@ -121,11 +97,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         throw new LifecycleRuleError('This step does not allow return for clarification', 409)
       }
       assertDecisionQuantities(step.request.items, input, step.stepDefinition.allowPartialApproval)
-      // Quota-aware cap: an approval cannot exceed the stakeholder's remaining
-      // allocation for that category. This prevents over-allocation and the
-      // duplicate calls it causes downstream.
-      if (input.action === 'APPROVE' || input.action === 'PARTIAL') {
-        await assertApprovalWithinQuota(tx, step.request.matchId, input.items ?? [], step.request.items)
+      if (!['SUBMITTED', 'UNDER_REVIEW'].includes(step.request.status)) {
+        throw new LifecycleRuleError('Request is no longer awaiting approval', 409)
       }
       await claimStepAndRequest(tx, step, input.action)
       return input.action === 'APPROVE' || input.action === 'PARTIAL'
@@ -133,7 +106,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         : closeRequest(tx, step, input, session)
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     // Fire-and-forget requester notification; delivery is logged, never blocks the decision.
-    void notifyDecision(result.requestStatus, input.stepId).catch(() => undefined)
+    if (result.requestStatus !== 'UNDER_REVIEW') void notifyDecision(result.requestStatus, input.stepId).catch(() => undefined)
     return NextResponse.json({ success: true, ...result })
   } catch (error: unknown) {
     return handleError(error, 'Failed to record approval decision')
@@ -168,7 +141,7 @@ function findAssignedStep(tx: Transaction, stepId: string, userId: string, roleI
 async function claimStepAndRequest(tx: Transaction, step: ApprovalStep, action: ApprovalInput['action']): Promise<void> {
   const terminalStatus = action === 'APPROVE' ? 'APPROVED' : action === 'PARTIAL' ? 'PARTIAL' : action === 'REJECT' ? 'REJECTED' : 'RETURNED'
   const claimedRequest = await tx.request.updateMany({
-    where: { id: step.requestId, version: step.request.version, totalApproved: step.request.totalApproved },
+    where: { id: step.requestId, status: step.request.status, version: step.request.version, totalApproved: step.request.totalApproved },
     data: { version: { increment: 1 } },
   })
   if (claimedRequest.count !== 1) throw new LifecycleRuleError('Request changed; retry the decision', 409)
@@ -190,14 +163,20 @@ async function approveStep(tx: Transaction, step: ApprovalStep, input: ApprovalI
     .filter((candidate) => candidate.stepOrder > step.stepOrder && candidate.status === 'PENDING')
     .sort((a, b) => a.stepOrder - b.stepOrder)[0]
   const requestStatus = nextStep ? 'UNDER_REVIEW' : (isPartial ? 'PARTIALLY_APPROVED' : 'APPROVED')
+  const allocationId = nextStep ? undefined : await allocateFinalApproval(
+    tx, step.request, step.id, session.userId, items, totalApproved,
+  )
   for (const item of items) {
-    await tx.requestItem.update({ where: { id: item.requestItemId }, data: { approvedQuantity: item.approvedQuantity } })
+    await tx.requestItem.update({ where: { id: item.requestItemId }, data: {
+      approvedQuantity: item.approvedQuantity,
+      ...(allocationId ? { allocatedQuantity: item.approvedQuantity } : {}),
+    } })
   }
   await createDecisions(tx, step, input, session.userId)
   await tx.request.update({ where: { id: step.requestId }, data: {
     totalApproved,
     status: requestStatus,
-    fulfilmentStatus: requestStatus === 'APPROVED' || requestStatus === 'PARTIALLY_APPROVED' ? 'APPROVED' : step.request.fulfilmentStatus,
+    ...(allocationId ? { totalAllocated: totalApproved, fulfilmentStatus: 'ALLOCATED' } : {}),
     approvedAt: nextStep ? step.request.approvedAt : new Date(),
   } })
   if (nextStep) {
@@ -208,8 +187,8 @@ async function approveStep(tx: Transaction, step: ApprovalStep, input: ApprovalI
     if (advanced.count !== 1) throw new LifecycleRuleError('Next approval step changed; retry the decision', 409)
   }
   const updatedStep = await tx.approvalStep.findUniqueOrThrow({ where: { id: step.id } })
-  await audit(tx, session.userId, step.request.matchId, step.id, input.action, { status: step.status }, { status: input.action, requestStatus, totalApproved })
-  return { step: updatedStep, requestStatus, totalApproved }
+  await audit(tx, session.userId, step.request.matchId, step.id, input.action, { status: step.status, requestStatus: step.request.status }, { status: input.action, requestStatus, totalApproved, allocationId })
+  return { step: updatedStep, requestStatus, totalApproved, allocationId }
 }
 
 async function closeRequest(tx: Transaction, step: ApprovalStep, input: ApprovalInput, session: SessionPayload) {
@@ -300,5 +279,5 @@ async function notifyDecision(requestStatus: string, stepId: string): Promise<vo
   const { requestNumber, createdById, totalApproved, totalRequested } = step.request
   const subject = `Ticket request ${requestNumber} ${requestStatus.toLowerCase().replace('_', ' ')}`
   const body = `Your request ${requestNumber} is ${requestStatus.toLowerCase().replace('_', ' ')}. Approved ${totalApproved} of ${totalRequested} tickets.`
-  await sendNotification({ recipientId: createdById, channel: 'EMAIL', subject, body, templateKey: requestStatus === 'APPROVED' ? 'request_approved' : 'request_rejected' })
+  await sendNotification({ recipientId: createdById, channel: 'EMAIL', subject, body, templateKey: ['APPROVED', 'PARTIALLY_APPROVED'].includes(requestStatus) ? 'request_approved' : requestStatus === 'RETURNED' ? undefined : 'request_rejected' })
 }

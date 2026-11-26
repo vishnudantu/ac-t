@@ -44,6 +44,7 @@ export const GET = withApiHandler(async (request: NextRequest, session: SessionP
     reserved: aggregate._sum.reservedQuantity || 0,
     available: aggregate._sum.availableQuantity || 0,
     allocated: aggregate._sum.allocatedQuantity || 0,
+    allocatedUnissued: Math.max(0, (aggregate._sum.allocatedQuantity ?? 0) - (aggregate._sum.issuedQuantity ?? 0)),
     issued: aggregate._sum.issuedQuantity || 0,
     returned: aggregate._sum.returnedQuantity || 0,
     void: aggregate._sum.voidQuantity || 0,

@@ -106,6 +106,7 @@ export const inventorySummarySchema = z.object({
   reserved: z.number(),
   available: z.number(),
   allocated: z.number(),
+  allocatedUnissued: z.number(),
   issued: z.number(),
   returned: z.number(),
   void: z.number(),
@@ -142,6 +143,7 @@ export const allocationSchema = z.object({
   request: z.object({
     requestNumber: z.string(),
     id: z.string(),
+    totalIssued: z.number().optional(),
     requester: z.object({ fullName: z.string() }),
   }),
   officer: z.object({ fullName: z.string() }),

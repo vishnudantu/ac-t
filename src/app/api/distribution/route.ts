@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { z, ZodError } from 'zod'
@@ -89,6 +89,20 @@ async function createBatch(tx: Transaction, input: BatchInput, userId: string) {
 }
 
 async function issueAllocations(tx: Transaction, input: IssueInput, userId: string) {
+  const keyPrefix = input.idempotencyKey ? `ISS-${userId}-${input.idempotencyKey}-` : undefined
+  const fingerprint = keyPrefix ? createHash('sha256').update(JSON.stringify(input)).digest('hex') : undefined
+  if (keyPrefix) {
+    const recorded = await tx.ticketIssuance.findMany({
+      where: { issuanceNumber: { startsWith: keyPrefix } },
+      orderBy: { issuanceNumber: 'asc' },
+    })
+    if (recorded.length) {
+      if (recorded.length !== input.items.length || recorded.some((row) => !row.issuanceNumber.startsWith(`${keyPrefix}${fingerprint}-`))) {
+        throw new LifecycleRuleError('Issuance key was already used for a different submission', 409)
+      }
+      return recorded
+    }
+  }
   const allocations = await tx.allocationItem.findMany({
     where: { id: { in: input.items.map((item) => item.allocationItemId) } },
     include: { allocation: true, requestItem: true, inventoryPool: true, ticketCategory: true },
@@ -101,13 +115,12 @@ async function issueAllocations(tx: Transaction, input: IssueInput, userId: stri
     id: allocation.id, inventoryPoolId: allocation.inventoryPoolId, allocationStatus: allocation.allocation.status, itemStatus: allocation.status,
     allocatedQuantity: allocation.quantity, alreadyIssuedQuantity: issuedByAllocation.get(allocation.id) ?? 0,
     requestedQuantity: allocation.requestItem.requestedQuantity, approvedQuantity: allocation.requestItem.approvedQuantity,
-    availableQuantity: allocation.inventoryPool.availableQuantity, totalQuantity: allocation.inventoryPool.totalQuantity,
+    totalQuantity: allocation.inventoryPool.totalQuantity,
     issuedQuantity: allocation.inventoryPool.issuedQuantity, voidQuantity: allocation.inventoryPool.voidQuantity,
   }))
   assertIssuableAllocations(issuable, input.items)
   const batch = await resolveBatch(tx, input, allocations, userId)
   const allocationsById = new Map(allocations.map((allocation) => [allocation.id, allocation]))
-  const inventoryRemaining = new Map(allocations.map((allocation) => [allocation.inventoryPoolId, allocation.inventoryPool.availableQuantity]))
   const requestItemIssued = new Map(allocations.map((allocation) => [allocation.requestItemId, allocation.requestItem.issuedQuantity]))
   const requestIds = [...new Set(allocations.map((allocation) => allocation.requestItem.requestId))]
   const requestTotals = new Map<string, { totalIssued: number; totalApproved: number }>()
@@ -129,12 +142,11 @@ async function issueAllocations(tx: Transaction, input: IssueInput, userId: stri
     if (allocationItemUpdate.count !== 1) throw new LifecycleRuleError('Allocation item changed during issuance; retry', 409)
   }
   const issuances = []
-  for (const item of input.items) {
+  const poolIssued = new Map(allocations.map(({ inventoryPool }) => [inventoryPool.id, inventoryPool.issuedQuantity]))
+  for (const [index, item] of input.items.entries()) {
     const allocation = allocationsById.get(item.allocationItemId)
     if (!allocation) throw new LifecycleRuleError('Allocation item not found', 404)
-    const availableQuantity = inventoryRemaining.get(allocation.inventoryPoolId) ?? allocation.inventoryPool.availableQuantity
-    await decrementInventory(tx, allocation, item.quantity, availableQuantity)
-    inventoryRemaining.set(allocation.inventoryPoolId, availableQuantity - item.quantity)
+    await issueInventory(tx, allocation, item.quantity)
     const issuedBeforeItem = requestItemIssued.get(allocation.requestItemId) ?? allocation.requestItem.issuedQuantity
     const requestItemUpdate = await tx.requestItem.updateMany({
       where: {
@@ -157,7 +169,8 @@ async function issueAllocations(tx: Transaction, input: IssueInput, userId: stri
     }
     const issuance = await tx.ticketIssuance.create({
       data: {
-        issuanceNumber: `ISS-${new Date().getUTCFullYear()}-${randomUUID()}`,
+        ...(keyPrefix && index === 0 ? { id: `issue-${createHash('sha256').update(keyPrefix).digest('hex')}` } : {}),
+        issuanceNumber: keyPrefix ? `${keyPrefix}${fingerprint}-${String(index).padStart(3, "0")}` : `ISS-${new Date().getUTCFullYear()}-${randomUUID()}`,
         batchId: batch.id, allocationItemId: allocation.id, matchId: allocation.allocation.matchId,
         requestId: allocation.requestItem.requestId, requestItemId: allocation.requestItemId, distributedById: userId,
         distributionMethod: item.distributionMethod ?? input.distributionMethod ?? batch.distributionMethod,
@@ -170,6 +183,12 @@ async function issueAllocations(tx: Transaction, input: IssueInput, userId: stri
         notes: item.notes ?? input.notes,
       },
     })
+    const issuedBefore = poolIssued.get(allocation.inventoryPoolId) ?? allocation.inventoryPool.issuedQuantity
+    const issuedAfter = issuedBefore + item.quantity
+    poolIssued.set(allocation.inventoryPoolId, issuedAfter)
+    await audit(tx, userId, allocation.allocation.matchId, 'INVENTORY', allocation.inventoryPoolId, 'ISSUE',
+      { issuedQuantity: issuedBefore },
+      { issuedQuantity: issuedAfter, requestId, allocationId: allocation.allocationId, issuanceId: issuance.id, quantity: item.quantity })
     issuances.push(issuance)
   }
   for (const [requestId, delta] of requestDeltas) {
@@ -216,16 +235,13 @@ async function resolveBatch(tx: Transaction, input: IssueInput, allocations: All
   return batch
 }
 
-async function decrementInventory(tx: Transaction, allocation: AllocationWithRelations, quantity: number, availableQuantity: number) {
-  const pool = allocation.inventoryPool
+async function issueInventory(tx: Transaction, allocation: AllocationWithRelations, quantity: number) {
+  const { id, totalQuantity, voidQuantity, reservedQuantity, returnedQuantity } = allocation.inventoryPool
   const updated = await tx.inventoryPool.updateMany({
-    where: {
-      id: pool.id, availableQuantity,
-      totalQuantity: { gte: pool.issuedQuantity + pool.voidQuantity + quantity },
-    },
-    data: { availableQuantity: { decrement: quantity }, issuedQuantity: { increment: quantity } },
+    where: { id, issuedQuantity: { lte: totalQuantity - voidQuantity - reservedQuantity - returnedQuantity - quantity } },
+    data: { issuedQuantity: { increment: quantity } },
   })
-  if (updated.count !== 1) throw new LifecycleRuleError('Insufficient inventory availability or concurrent inventory update', 409)
+  if (updated.count !== 1) throw new LifecycleRuleError('Insufficient issuable stock or concurrent inventory update', 409)
 }
 
 async function audit(tx: Transaction, userId: string, matchId: string, entityType: string, entityId: string, action: string, oldValues: object, newValues: object, reason?: string) {
@@ -236,7 +252,7 @@ function handleError(error: unknown, fallback: string): NextResponse {
   if (error instanceof ZodError) return NextResponse.json({ success: false, error: 'Invalid request data', details: error.flatten() }, { status: 400 })
   if (error instanceof SyntaxError) return responseError('Request body must be valid JSON', 400)
   if (error instanceof LifecycleRuleError) return responseError(error.message, error.status)
-  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') return responseError('Concurrent update detected; retry the request', 409)
+  if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2034', 'P2002'].includes(error.code)) return responseError('Concurrent update detected; retry the request', 409)
   console.error(fallback, error)
   return responseError('Internal server error', 500)
 }

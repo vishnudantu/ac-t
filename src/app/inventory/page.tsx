@@ -28,6 +28,7 @@ export default function InventoryPage() {
   const [page, setPage] = useState(1)
   const { user } = useSession()
   const [editing, setEditing] = useState<(typeof inventory)[number] | null>(null)
+  const [adjustmentReason, setAdjustmentReason] = useState("")
   const [editForm, setEditForm] = useState({ totalQuantity: "", standName: "", blockName: "", gateName: "", rowStart: "", rowEnd: "", seatStart: "", seatEnd: "", ticketFormat: "PHYSICAL", ticketPurpose: "COMPLIMENTARY", pricingUnit: "PER_SEAT", complimentaryQuantity: "", purchaseQuantity: "", faceValue: "", notes: "" })
   const [editError, setEditError] = useState("")
   const [editSaving, setEditSaving] = useState(false)
@@ -204,6 +205,7 @@ export default function InventoryPage() {
 
   function openEdit(item: (typeof inventory)[number]) {
     setEditing(item)
+    setAdjustmentReason("")
     setEditForm({
       totalQuantity: String(item.totalQuantity),
       standName: item.standName, blockName: item.blockName || "", gateName: item.gateName || "",
@@ -227,6 +229,7 @@ export default function InventoryPage() {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           totalQuantity,
+          ...(totalQuantity !== editing.totalQuantity ? { adjustmentReason: adjustmentReason.trim() } : {}),
           standName: editForm.standName,
           blockName: editForm.blockName || null,
           gateName: editForm.gateName || null,
@@ -435,6 +438,11 @@ export default function InventoryPage() {
               <div className="space-y-2"><Label htmlFor="edit-unit">Pricing unit</Label><select id="edit-unit" className={selectClassName} value={editForm.pricingUnit} onChange={(event) => setEditForm({ ...editForm, pricingUnit: event.target.value })} disabled={editSaving}><option value="PER_SEAT">Per seat</option><option value="PER_SUITE">Per suite (whole box)</option></select></div>
               <div className="space-y-2"><Label htmlFor="edit-value">Face value (₹{editForm.pricingUnit === "PER_SUITE" ? " per suite" : " per seat"})</Label><Input id="edit-value" inputMode="decimal" value={editForm.faceValue} onChange={(event) => setEditForm({ ...editForm, faceValue: event.target.value })} disabled={editSaving} /></div>
               <div className="space-y-2"><Label htmlFor="edit-total">Total quantity</Label><Input id="edit-total" type="number" min={0} required value={editForm.totalQuantity} onChange={(event) => setEditForm({ ...editForm, totalQuantity: event.target.value })} disabled={editSaving} /></div>
+              {editing && Number(editForm.totalQuantity) !== editing.totalQuantity && (
+                <div className="space-y-2"><Label htmlFor="adjustment-reason">Reason for stock adjustment</Label>
+                  <Input id="adjustment-reason" required maxLength={2000} value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} disabled={editSaving} />
+                </div>
+              )}
               <div className="space-y-2 sm:col-span-2"><Label htmlFor="edit-notes">Notes</Label><Input id="edit-notes" maxLength={2000} value={editForm.notes} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} disabled={editSaving} /></div>
             </div>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={editSaving}>Cancel</Button><Button type="submit" disabled={editSaving}>{editSaving ? "Saving…" : "Save changes"}</Button></DialogFooter>
