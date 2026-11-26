@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CheckCircle2, Layers3, Pencil, Plus, Shield, Trash2, AlertCircle } from "lucide-react"
+import { CheckCircle2, Layers3, Pencil, Plus, Shield, Trash2, AlertCircle, BarChart3 } from "lucide-react"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -112,7 +112,7 @@ function DeleteConfirmDialog({ quota, open, onClose, onConfirm }: {
       const body = await response.json() as { error?: string }
       if (!response.ok) throw new Error(body.error || "Unable to delete quota")
       onConfirm(quota)
-      onOpenChange(false)
+      onClose()
     } catch (cause: unknown) {
       console.error("Delete failed:", cause)
     } finally {
@@ -137,7 +137,7 @@ function DeleteConfirmDialog({ quota, open, onClose, onConfirm }: {
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
           {canDelete && quota && (
             <Button variant="destructive" onClick={handleDelete} disabled={saving}>
               {saving ? "Deleting…" : "Delete quota pool"}
@@ -229,6 +229,67 @@ export default function QuotasPage() {
               <MetricCard label="Consumed" value={totals.consumed} icon={CheckCircle2} tone="violet" />
               <MetricCard label="Remaining" value={Math.max(0, totals.allocation - totals.consumed)} icon={Layers3} tone="green" />
             </div>
+          </section>
+        )}
+        {data && (
+          <section aria-labelledby="complimentary-tickets">
+            <Card className="shadow-none">
+              <CardHeader className="p-4">
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Complimentary tickets by category
+                </CardTitle>
+                <CardDescription>Breakdown of complimentary allocations across all matches</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Category</TableHead>
+                        <TableHead className="text-right">Total Complimentary</TableHead>
+                        <TableHead className="text-right">Used</TableHead>
+                        <TableHead className="text-right">Remaining</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(() => {
+                        const complimentaryByCategory = new Map<string, { allocated: number; consumed: number }>()
+                        for (const quota of quotas) {
+                          for (const alloc of quota.quotaAllocations) {
+                            const catName = alloc.ticketCategory.displayName
+                            const existing = complimentaryByCategory.get(catName) || { allocated: 0, consumed: 0 }
+                            complimentaryByCategory.set(catName, {
+                              allocated: existing.allocated + alloc.allocatedQuantity,
+                              consumed: existing.consumed + alloc.consumedQuantity
+                            })
+                          }
+                        }
+                        const sortedCategories = Array.from(complimentaryByCategory.entries())
+                          .sort((a, b) => b[1].allocated - a[1].allocated)
+
+                        return sortedCategories.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                              No complimentary allocations recorded
+                            </TableCell>
+                          </TableRow>
+                        ) : sortedCategories.map(([name, data]) => (
+                          <TableRow key={name}>
+                            <TableCell><Badge variant="secondary">{name}</Badge></TableCell>
+                            <TableCell className="text-right tabular-nums">{formatNumber(data.allocated)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{formatNumber(data.consumed)}</TableCell>
+                            <TableCell className="text-right tabular-nums text-green-700 dark:text-green-400">
+                              {formatNumber(Math.max(0, data.allocated - data.consumed))}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      })()}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
           </section>
         )}
         <Card className="shadow-none">
