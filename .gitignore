@@ -5,6 +5,7 @@ out/
 dist/
 build/
 coverage/
+test-results/
 next-env.d.ts
 *.tsbuildinfo
 
