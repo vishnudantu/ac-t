@@ -48,7 +48,6 @@ export interface IssuableAllocation {
   alreadyIssuedQuantity: number
   requestedQuantity: number
   approvedQuantity: number
-  availableQuantity: number
   totalQuantity: number
   issuedQuantity: number
   voidQuantity: number
@@ -85,6 +84,7 @@ export const createBatchSchema = z.object({
 
 const issueTicketsObjectSchema = z.object({
   action: z.literal('ISSUE'),
+  idempotencyKey: z.uuid().optional(),
   batchId: id.optional(),
   distributionMethod: z.enum(['PHYSICAL', 'DIGITAL', 'BOTH']).optional(),
   notes: optionalText,
@@ -158,7 +158,7 @@ export function assertApprovalSequence(steps: WorkflowStepState[], stepId: strin
   if (priorSteps.some((step) => !['APPROVED', 'PARTIAL'].includes(step.status))) {
     throw new LifecycleRuleError('Prior approval steps must be approved before this decision', 409)
   }
-  if (steps.some((step) => step.stepOrder > current.stepOrder && !['PENDING', 'CANCELLED'].includes(step.status))) {
+  if (steps.some((step) => step.stepOrder > current.stepOrder && step.status !== 'PENDING')) {
     throw new LifecycleRuleError('A future approval step already holds a decision', 409)
   }
 }
@@ -263,7 +263,7 @@ export function assertIssuableAllocations(
     const poolId = allocation.inventoryPoolId ?? allocation.id
     const existing = inventoryQuantities.get(poolId) ?? {
       requested: 0,
-      available: Math.min(allocation.availableQuantity, allocation.totalQuantity - allocation.issuedQuantity - allocation.voidQuantity),
+      available: allocation.totalQuantity - allocation.issuedQuantity - allocation.voidQuantity,
     }
     inventoryQuantities.set(poolId, { ...existing, requested: existing.requested + quantity })
   }

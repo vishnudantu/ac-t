@@ -107,7 +107,7 @@ describe('approval decision route', () => {
       where: { id: 'step-1', status: 'IN_PROGRESS', updatedAt: step.updatedAt },
       data: expect.objectContaining({ status: 'PARTIAL' }),
     }))
-    expect(tx.request.updateMany).toHaveBeenCalledWith({ where: { id: 'request-1', version: 3, totalApproved: 0 }, data: { version: { increment: 1 } } })
+    expect(tx.request.updateMany).toHaveBeenCalledWith({ where: { id: 'request-1', status: 'UNDER_REVIEW', version: 3, totalApproved: 0 }, data: { version: { increment: 1 } } })
     expect(tx.requestItem.update).toHaveBeenCalledWith({ where: { id: 'item-1' }, data: { approvedQuantity: 5 } })
     expect(tx.request.update.mock.calls[0][0].data).toMatchObject({ status: 'UNDER_REVIEW', totalApproved: 5 })
     expect(tx.approvalStep.updateMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: { id: 'step-2', status: 'PENDING' }, data: expect.objectContaining({ status: 'IN_PROGRESS' }) }))
@@ -204,13 +204,13 @@ describe('distribution issue route', () => {
     expect(prismaMock.$transaction).not.toHaveBeenCalled()
   })
 
-  it('atomically records an issuance and decrements guarded inventory and request counters', async () => {
+  it('atomically records issuance without charging available stock again', async () => {
     const allocation = {
       id: 'allocation-item-1', status: 'CONFIRMED', quantity: 5, requestItemId: 'request-item-1',
       updatedAt: new Date('2026-11-24T10:00:00.000Z'), standName: 'East', blockName: 'A', seatDetails: 'A1-A5',
       allocation: { status: 'CONFIRMED', matchId: 'match-1' },
       requestItem: { id: 'request-item-1', requestId: 'request-1', requestedQuantity: 5, approvedQuantity: 5, issuedQuantity: 1 },
-      inventoryPool: { id: 'pool-1', availableQuantity: 10, totalQuantity: 10, issuedQuantity: 0, voidQuantity: 0 },
+      inventoryPool: { id: 'pool-1', availableQuantity: 10, totalQuantity: 10, reservedQuantity: 0, returnedQuantity: 0, issuedQuantity: 0, voidQuantity: 0 },
       ticketCategory: { displayName: 'East Stand' },
     }
     const tx = {
@@ -235,8 +235,8 @@ describe('distribution issue route', () => {
     const response = await distributionPost(request({ action: 'ISSUE', batchId: 'batch-1', items: [baseItem] }))
     expect(response.status).toBe(201)
     expect(tx.inventoryPool.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ availableQuantity: 10, totalQuantity: { gte: 2 } }),
-      data: { availableQuantity: { decrement: 2 }, issuedQuantity: { increment: 2 } },
+      where: expect.objectContaining({ id: "pool-1", issuedQuantity: { lte: 8 } }),
+      data: { issuedQuantity: { increment: 2 } },
     }))
     expect(tx.requestItem.updateMany.mock.calls[0][0].where.approvedQuantity).toEqual({ gte: 3 })
     expect(tx.allocationItem.updateMany.mock.calls[0][0].data.status).toBe('CONFIRMED')
@@ -252,7 +252,7 @@ describe('distribution issue route', () => {
       id: 'allocation-item-1', status: 'CONFIRMED', quantity: 5, requestItemId: 'request-item-1', updatedAt: new Date(), standName: 'East',
       allocation: { status: 'CONFIRMED', matchId: 'match-1' },
       requestItem: { id: 'request-item-1', requestId: 'request-1', requestedQuantity: 5, approvedQuantity: 5, issuedQuantity: 0 },
-      inventoryPool: { id: 'pool-1', availableQuantity: 10, totalQuantity: 10, issuedQuantity: 0, voidQuantity: 0 },
+      inventoryPool: { id: 'pool-1', availableQuantity: 10, totalQuantity: 10, reservedQuantity: 0, returnedQuantity: 0, issuedQuantity: 0, voidQuantity: 0 },
       ticketCategory: { displayName: 'East Stand' },
     }
     const tx = {
@@ -278,7 +278,7 @@ describe('distribution issue route', () => {
       updatedAt: new Date('2026-11-24T10:00:00.000Z'), standName: 'East', blockName: 'A', seatDetails: 'A1-A5',
       allocation: { status: 'CONFIRMED', matchId: 'match-1' },
       requestItem: { id: 'request-item-1', requestId: 'request-1', requestedQuantity: 5, approvedQuantity: 5, issuedQuantity: 1 },
-      inventoryPool: { id: 'pool-1', availableQuantity: 10, totalQuantity: 10, issuedQuantity: 0, voidQuantity: 0 },
+      inventoryPool: { id: 'pool-1', availableQuantity: 10, totalQuantity: 10, reservedQuantity: 0, returnedQuantity: 0, issuedQuantity: 0, voidQuantity: 0 },
       ticketCategory: { displayName: 'East Stand' },
     }
     const tx = {
@@ -322,7 +322,7 @@ describe('distribution issue route', () => {
       updatedAt: new Date('2026-11-24T10:00:00.000Z'), standName: 'East', blockName: 'A', seatDetails: 'A1-A10',
       allocation: { status: 'CONFIRMED', matchId: 'match-1' },
       requestItem: { id: 'request-item-1', requestId: 'request-1', requestedQuantity: 10, approvedQuantity: 10, issuedQuantity: 4 },
-      inventoryPool: { id: 'pool-1', availableQuantity: 10, totalQuantity: 10, issuedQuantity: 4, voidQuantity: 0 },
+      inventoryPool: { id: 'pool-1', availableQuantity: 10, totalQuantity: 10, reservedQuantity: 0, returnedQuantity: 0, issuedQuantity: 4, voidQuantity: 0 },
       ticketCategory: { displayName: 'East Stand' },
     }
     const tx = {

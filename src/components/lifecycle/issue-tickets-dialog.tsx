@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AlertCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,7 @@ interface IssueTicketsDialogProps {
 }
 
 export function IssueTicketsDialog({ open, groups, batches, drafts, loading, loadError, canConfirm, canReadRequests, initialBatchId, onOpenChange, onChanged }: IssueTicketsDialogProps) {
+  const previousSubmission = useRef<{ payload: string; key: string } | null>(null)
   const [selection, setSelection] = useState("")
   const [draftId, setDraftId] = useState("")
   const [batchId, setBatchId] = useState("")
@@ -43,6 +44,7 @@ export function IssueTicketsDialog({ open, groups, batches, drafts, loading, loa
 
   useEffect(() => {
     if (!open) return
+    previousSubmission.current = null
     setSelection("")
     setDraftId("")
     setQuantity(1)
@@ -73,7 +75,7 @@ export function IssueTicketsDialog({ open, groups, batches, drafts, loading, loa
     setSubmitting(true)
     setError(null)
     try {
-      await postLifecycle("/api/distribution", {
+      const submission = {
         action: "ISSUE",
         ...(batchId ? { batchId } : { distributionMethod: method }),
         items: [{
@@ -83,7 +85,13 @@ export function IssueTicketsDialog({ open, groups, batches, drafts, loading, loa
           ...(seatDetails.trim() ? { seatDetails: seatDetails.trim() } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
         }],
-      })
+      }
+      const payload = JSON.stringify(submission)
+      if (previousSubmission.current?.payload !== payload) {
+        previousSubmission.current = { payload, key: crypto.randomUUID() }
+      }
+      await postLifecycle("/api/distribution", { ...submission, idempotencyKey: previousSubmission.current.key })
+      previousSubmission.current = null
       onOpenChange(false)
       await onChanged()
     } catch (cause: unknown) {

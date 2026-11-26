@@ -192,7 +192,8 @@ export default function DashboardPage() {
                         {([
                           ["Total stock", data.inventory.data.summary.total],
                           ["Reserved", data.inventory.data.summary.reserved],
-                          ["Allocated", data.inventory.data.summary.allocated],
+                          ["Allocated, unissued", data.inventory.data.summary.allocatedUnissued],
+                          ["Committed", data.inventory.data.summary.allocated],
                           ["Issued", data.inventory.data.summary.issued],
                         ] as const).map(([label, value]) => (
                           <div key={label} className="flex items-center gap-3">

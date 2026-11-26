@@ -107,7 +107,7 @@ export const PATCH = withApiHandler<Context>(async (request, session, context) =
       // request passes through the approval chain again.
       const firstStep = await tx.approvalStep.findFirst({ where: { requestId: id }, orderBy: { stepOrder: 'asc' }, select: { id: true } })
       if (firstStep) {
-        await tx.approvalStep.updateMany({ where: { requestId: id }, data: { status: 'CANCELLED', completedAt: new Date() } })
+        await tx.approvalStep.updateMany({ where: { requestId: id }, data: { status: 'PENDING', startedAt: null, completedAt: null } })
         await tx.approvalStep.update({ where: { id: firstStep.id }, data: { status: 'IN_PROGRESS', startedAt: new Date(), completedAt: null } })
         await tx.requestItem.updateMany({ where: { requestId: id }, data: { approvedQuantity: 0 } })
       }

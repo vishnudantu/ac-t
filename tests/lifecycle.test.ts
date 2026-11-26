@@ -147,7 +147,7 @@ describe('distribution issuance rules', () => {
   const allocations: IssuableAllocation[] = [{
     id: 'allocation-item-1', allocationStatus: 'CONFIRMED', itemStatus: 'CONFIRMED',
     allocatedQuantity: 10, alreadyIssuedQuantity: 2, requestedQuantity: 12, approvedQuantity: 10,
-    availableQuantity: 20, totalQuantity: 30, issuedQuantity: 5, voidQuantity: 1,
+    totalQuantity: 30, issuedQuantity: 5, voidQuantity: 1,
   }]
 
   it('allows quantities within confirmed allocation, approval, and inventory availability', () => {
@@ -186,13 +186,13 @@ describe('distribution issuance rules', () => {
   })
 
   it('enforces inventory counters and rejects missing allocation items', () => {
-    expect(() => assertIssuableAllocations([{ ...allocations[0], availableQuantity: 2 }], [
+    expect(() => assertIssuableAllocations([{ ...allocations[0], totalQuantity: 8 }], [
       { allocationItemId: 'allocation-item-1', quantity: 3 },
     ])).toThrow('inventory')
     expect(() => assertIssuableAllocations([{ ...allocations[0], totalQuantity: 6 }], [
       { allocationItemId: 'allocation-item-1', quantity: 2 },
     ])).toThrow('inventory')
-    expect(() => assertIssuableAllocations([{ ...allocations[0], inventoryPoolId: 'pool-1', availableQuantity: 2 }], [
+    expect(() => assertIssuableAllocations([{ ...allocations[0], inventoryPoolId: 'pool-1', totalQuantity: 8 }], [
       { allocationItemId: 'allocation-item-1', quantity: 2 },
       { allocationItemId: 'allocation-item-1', quantity: 1 },
     ])).toThrow('inventory')

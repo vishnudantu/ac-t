@@ -3,6 +3,12 @@
 import { useState } from "react"
 import { Package } from "lucide-react"
 import { MainLayout } from "@/components/layout/main-layout"
+import { useSession } from "@/hooks/use-session"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { postLifecycle } from "@/components/lifecycle/client"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -22,9 +28,15 @@ const statusOptions = [
   { value: "CONFIRMED", label: "Confirmed" },
   { value: "LOCKED", label: "Locked" },
   { value: "RELEASED", label: "Released" },
+  { value: "CANCELLED", label: "Cancelled" },
 ]
 
 export default function AllocationsPage() {
+  const { user } = useSession()
+  const [cancelling, setCancelling] = useState<{ id: string; number: string } | null>(null)
+  const [reason, setReason] = useState("")
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  const [cancelPending, setCancelPending] = useState(false)
   const [search, setSearch] = useState("")
   const [status, setStatus] = useState("all")
   const [page, setPage] = useState(1)
@@ -40,6 +52,22 @@ export default function AllocationsPage() {
       allocation.request.requester.fullName, allocation.match.title, allocation.officer.fullName]
       .some((value) => value.toLowerCase().includes(query)),
   )
+
+  async function cancelAllocation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!cancelling || !reason.trim() || cancelPending) return
+    setCancelPending(true)
+    setCancelError(null)
+    try {
+      await postLifecycle(`/api/allocations/${encodeURIComponent(cancelling.id)}/cancel`, { reason: reason.trim() })
+      setCancelling(null)
+      retry()
+    } catch (cause) {
+      setCancelError(cause instanceof Error ? cause.message : "Unable to cancel allocation")
+    } finally {
+      setCancelPending(false)
+    }
+  }
 
   function changeStatus(value: string) {
     setStatus(value)
@@ -113,6 +141,14 @@ export default function AllocationsPage() {
                             <div><dt className="text-xs text-muted-foreground">Allocated</dt><dd className="mt-1 text-lg font-bold tabular-nums text-green-700 dark:text-green-400">{formatNumber(total)}</dd></div>
                           </dl>
                         </div>
+                        {user?.permissions.includes("allocations:confirm") && allocation.status === "CONFIRMED"
+                          && allocation.allocationNumber.startsWith("AUTO-") && allocation.request.totalIssued === 0 && (
+                            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => {
+                              setReason("")
+                              setCancelError(null)
+                              setCancelling({ id: allocation.id, number: allocation.allocationNumber })
+                            }}>Cancel allocation</Button>
+                          )}
                         {allocation.items.length === 0 ? (
                           <p className="mt-3 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">No inventory items are linked to this allocation.</p>
                         ) : (
@@ -157,6 +193,25 @@ export default function AllocationsPage() {
           )}
         </Card>
       </div>
+      <Dialog open={Boolean(cancelling)} onOpenChange={(open) => { if (!open && !cancelPending) setCancelling(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel allocation</DialogTitle>
+            <DialogDescription>Cancel {cancelling?.number} and release its tickets and quota. This also cancels the request.</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={cancelAllocation}>
+            <div className="space-y-2">
+              <Label htmlFor="allocation-cancel-reason">Reason</Label>
+              <Textarea id="allocation-cancel-reason" value={reason} onChange={(event) => setReason(event.target.value)} required maxLength={2000} disabled={cancelPending} />
+            </div>
+            {cancelError && <p role="alert" className="text-sm text-destructive">{cancelError}</p>}
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={cancelPending} onClick={() => setCancelling(null)}>Keep allocation</Button>
+              <Button type="submit" variant="destructive" disabled={cancelPending || !reason.trim()}>Cancel allocation</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   )
 }

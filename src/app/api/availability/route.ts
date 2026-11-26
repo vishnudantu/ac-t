@@ -24,31 +24,20 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     where: { matchId, isActive: true },
     select: {
       id: true, name: true, displayName: true, sortOrder: true,
-      inventoryPools: { select: { totalQuantity: true, allocatedQuantity: true, issuedQuantity: true, voidQuantity: true } },
+      inventoryPools: { select: { totalQuantity: true, availableQuantity: true, allocatedQuantity: true, issuedQuantity: true, voidQuantity: true } },
       requestItems: {
-        where: { request: { status: { in: ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PARTIALLY_APPROVED'] } } },
-        select: { approvedQuantity: true, requestedQuantity: true },
+        where: { request: { status: { in: ['APPROVED', 'PARTIALLY_APPROVED'] } } },
+        select: { approvedQuantity: true, allocatedQuantity: true },
       },
     },
     orderBy: { sortOrder: 'asc' },
   })
-  // Quota allocations cap how many tickets each stakeholder can draw per category.
-  const quotaRows = await prisma.quotaAllocation.findMany({
-    where: { quotaPool: { matchId, isActive: true } },
-    select: { ticketCategoryId: true, allocatedQuantity: true, consumedQuantity: true },
-  })
-  const quotaByCategory = new Map<string, { allocated: number; consumed: number }>()
-  for (const row of quotaRows) {
-    const current = quotaByCategory.get(row.ticketCategoryId) ?? { allocated: 0, consumed: 0 }
-    quotaByCategory.set(row.ticketCategoryId, { allocated: current.allocated + row.allocatedQuantity, consumed: current.consumed + row.consumedQuantity })
-  }
-
   const rows = categories.map((category) => {
     const capacity = category.inventoryPools.reduce((sum, pool) => sum + pool.totalQuantity, 0)
-    const allocated = category.inventoryPools.reduce((sum, pool) => sum + pool.allocatedQuantity + pool.issuedQuantity + pool.voidQuantity, 0)
+    const allocated = category.inventoryPools.reduce((sum, pool) => sum + pool.allocatedQuantity, 0)
     const approved = category.requestItems.reduce((sum, item) => sum + item.approvedQuantity, 0)
-    const remaining = Math.max(0, capacity - allocated)
-    const unallocatedApproved = Math.max(0, approved - allocated)
+    const remaining = category.inventoryPools.reduce((sum, pool) => sum + pool.availableQuantity, 0)
+    const unallocatedApproved = category.requestItems.reduce((sum, item) => sum + Math.max(0, item.approvedQuantity - item.allocatedQuantity), 0)
     return {
       id: category.id,
       name: category.name,
@@ -59,9 +48,7 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       remaining,
       unallocatedApproved,
       issuable: Math.max(0, remaining - unallocatedApproved),
-      quotaAllocated: quotaByCategory.get(category.id)?.allocated ?? 0,
-      quotaConsumed: quotaByCategory.get(category.id)?.consumed ?? 0,
-      quotaRemaining: Math.max(0, (quotaByCategory.get(category.id)?.allocated ?? 0) - (quotaByCategory.get(category.id)?.consumed ?? 0)),
+
     }
   })
 
@@ -77,7 +64,7 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
       totalInventory: match.totalInventory,
       totalCapacity,
       totalAllocated,
-      totalRemaining: Math.max(0, totalCapacity - totalAllocated),
+      totalRemaining: rows.reduce((sum, row) => sum + row.remaining, 0),
     },
   })
 })
