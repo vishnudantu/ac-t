@@ -312,7 +312,7 @@ export default function InventoryPage() {
           <section aria-labelledby="inventory-totals">
             <div className="mb-2 flex items-baseline justify-between gap-3">
               <h2 id="inventory-totals" className="text-sm font-semibold">Stock totals</h2>
-              <p className="text-xs text-muted-foreground">Current page · {inventory.length} pools{data && data.total > inventory.length ? ` of ${data.total}` : ""}</p>
+              <p className="text-xs text-muted-foreground">Totals across all {data?.total} matching pools</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
               {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}

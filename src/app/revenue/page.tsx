@@ -21,7 +21,7 @@ interface RevenueRow {
   saleIssued: number
   unclassifiedIssued: number
   complimentaryRevenue: number
-  saleRevenue: number
+  saleRevenue: number | null
   gstOnComplimentary: number
   gstOnSale: number
 }
@@ -31,7 +31,7 @@ interface RevenueData {
   totals: {
     complimentaryIssued: number; saleIssued: number; unclassifiedIssued: number; complimentaryRevenue: number; saleRevenue: number
     gstOnComplimentary: number; gstOnSale: number
-    totalIssued: number; totalRevenue: number; gstTotal: number; netOfGst: number
+    unvaluedPurchaseTickets: number; totalIssued: number; totalRevenue: number; gstTotal: number; netOfGst: number
     pendingApproved?: number; pendingAllocated?: number
   }
   rows: RevenueRow[]
@@ -80,7 +80,7 @@ export default function RevenuePage() {
         {!data ? null : data.rows.length === 0 ? <Card><EmptyState icon={<IndianRupee className="h-10 w-10" />} title="No issued tickets yet" description="Revenue appears once tickets are issued through the allocation and distribution workflow. Approved-but-not-yet-issued tickets will show here as a pending pipeline." /></Card> : <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Revenue totals">
             <MetricCard label="Total issued" value={formatNumber(data.totals.totalIssued)} icon={Ticket} tone="blue" description={`${formatNumber(data.totals.unclassifiedIssued)} issued with unverified purpose`} />
-            <MetricCard label="Purchase revenue" value={formatCurrency(data.totals.saleRevenue)} icon={TrendingUp} tone="violet" description={`GST on sale: ${formatCurrency(data.totals.gstOnSale)}`} />
+            <MetricCard label="Valued purchase issuance" value={formatCurrency(data.totals.saleRevenue)} icon={TrendingUp} tone="violet" description={`${data.totals.unvaluedPurchaseTickets} purchase tickets pending valuation · GST on sale: ${formatCurrency(data.totals.gstOnSale)}`} />
             <MetricCard label="Complimentary revenue" value={formatCurrency(data.totals.complimentaryRevenue)} icon={IndianRupee} tone="green" description={`GST borne by ACA: ${formatCurrency(data.totals.gstOnComplimentary)}`} />
             <MetricCard label="Net of GST" value={formatCurrency(data.totals.netOfGst)} icon={IndianRupee} tone="amber" description={`Total GST component: ${formatCurrency(data.totals.gstTotal)}`} />
           </section>
@@ -95,7 +95,7 @@ export default function RevenuePage() {
                 <TableCell className="text-right tabular-nums">{formatNumber(row.saleIssued)}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatNumber(row.unclassifiedIssued)}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(row.complimentaryRevenue)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatCurrency(row.saleRevenue)}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.saleRevenue === null ? "Undetermined" : formatCurrency(row.saleRevenue)}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(row.gstOnComplimentary)}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(row.gstOnSale)}</TableCell>
               </TableRow>)}</TableBody>

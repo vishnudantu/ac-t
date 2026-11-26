@@ -38,7 +38,10 @@ export const GET = withApiHandler(async (request: NextRequest, session) => {
     const approved = category.requestItems.reduce((sum, item) => sum + item.approvedQuantity, 0)
     const remaining = category.inventoryPools.reduce((sum, pool) => sum + pool.availableQuantity, 0)
     const unallocatedApproved = category.requestItems.reduce((sum, item) => sum + Math.max(0, item.approvedQuantity - item.allocatedQuantity), 0)
+    const purposes = new Set(category.inventoryPools.map(pool => pool.ticketPurpose))
+    const [purpose] = purposes
     return {
+      inventoryPurpose: purposes.size === 1 && (purpose === 'PURCHASE' || purpose === 'COMPLIMENTARY') ? purpose : null,
       id: category.id,
       name: category.name,
       displayName: category.displayName,

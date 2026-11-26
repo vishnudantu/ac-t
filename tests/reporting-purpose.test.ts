@@ -1,5 +1,6 @@
 jest.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: jest.fn(),
     request: { aggregate: jest.fn() }, match: { findMany: jest.fn() },
     inventoryPool: { findMany: jest.fn(), aggregate: jest.fn() }, quotaPool: { aggregate: jest.fn() },
     allocation: { aggregate: jest.fn() }, ticketIssuance: { aggregate: jest.fn() },
@@ -23,6 +24,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 beforeEach(() => {
+  jest.mocked(prisma.$transaction).mockImplementation(async (read: any) => read(prisma))
   jest.mocked(getSession).mockResolvedValue({
     userId: 'tester', email: 'tester@example.test', fullName: 'Tester', roles: [], permissions: ['reports:read'],
   })
@@ -51,7 +53,7 @@ it('reports each issued ticket once and excludes unclassified issuance from purp
   expect((await response.json()).summary.purposeBreakdown).toEqual({
     COMPLIMENTARY: { pools: 1, issued: 1, value: 499 },
     PURCHASE: { pools: 1, issued: 2, value: 1800 },
-    UNCLASSIFIED: { pools: 1, issued: 3, value: 0 },
+    MIXED: { pools: 1, issued: 3, value: null },
   })
 })
 
@@ -63,4 +65,15 @@ it('returns match IDs and keeps mixed issuance out of revenue while preserving t
     matches: [{ id: 'match-1', title: 'Home match' }],
     totals: { complimentaryIssued: 1, saleIssued: 2, unclassifiedIssued: 3, totalIssued: 6, totalRevenue: 2299, pendingAllocated: 2 },
   })
+})
+
+it.each([[0, 0], [1, null], [25, 550000]])('values a 25-ticket suite with %i issued consistently', async (issuedQuantity, expected) => {
+  jest.mocked(prisma.inventoryPool.findMany).mockResolvedValue([{
+    ticketPurpose: 'PURCHASE', pricingUnit: 'PER_SUITE', totalQuantity: 25, faceValue: 550000,
+    issuedQuantity, match: { title: 'Home match' }, ticketCategory: { displayName: 'Suite-5' },
+  }] as never)
+  const report = await reports(new NextRequest('http://localhost/api/reports'))
+  const sales = await revenue(new NextRequest('http://localhost/api/revenue'))
+  expect((await report.json()).summary.purposeBreakdown.PURCHASE.value).toBe(expected)
+  expect((await sales.json()).rows[0].saleRevenue).toBe(expected)
 })
