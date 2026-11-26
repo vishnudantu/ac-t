@@ -27,6 +27,8 @@ const titles: Record<ApprovalAction, string> = {
   RETURN: "Return for clarification",
 }
 
+type CategoryStock = { id: string; complimentaryStock: number; purchaseStock: number }
+
 export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDecided }: DecisionDialogProps) {
   const [revising, setRevising] = useState(false)
   const [ticketType, setTicketType] = useState<"COMPLIMENTARY" | "PURCHASE">("COMPLIMENTARY")
@@ -35,24 +37,27 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
   const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [availability, setAvailability] = useState<Record<string, { remaining: number; capacity: number }>>({})
+  const [availability, setAvailability] = useState<Record<string, CategoryStock>>({})
 
   useEffect(() => {
     if (!step || !open) return
+    let active = true
+    setAvailability({})
     fetch(`/api/availability?matchId=${encodeURIComponent(step.request.match.id)}`, { cache: "no-store" })
       .then((response) => response.json())
-      .then((body: { categories?: { id: string; remaining: number; capacity: number }[] }) => {
-        const map: Record<string, { remaining: number; capacity: number }> = {}
-        for (const row of body.categories || []) map[row.id] = { remaining: row.remaining, capacity: row.capacity }
-        setAvailability(map)
+      .then((body: { categories?: CategoryStock[] }) => {
+        const map: Record<string, CategoryStock> = {}
+        for (const row of body.categories || []) map[row.id] = row
+        if (active) setAvailability(map)
       })
-      .catch(() => setAvailability({}))
+      .catch(() => {})
     setRevising(false)
     setTicketType(step.request.preferredType === "PURCHASE" ? "PURCHASE" : "COMPLIMENTARY")
     setQuantities({})
     setRemarks("")
     setConfidentialRemarks("")
     setError(null)
+    return () => { active = false }
   }, [action, open, step])
 
   if (!step) return null
@@ -124,12 +129,18 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
           )}
           {revising && (
             <div className="space-y-2">
-              <Label htmlFor="revision-ticket-type">Revised ticket type</Label>
-              <select id="revision-ticket-type" className="w-full rounded-md border bg-background p-2" value={ticketType}
-                onChange={(event) => setTicketType(event.target.value === "PURCHASE" ? "PURCHASE" : "COMPLIMENTARY")}>
-                <option value="COMPLIMENTARY">Complimentary</option>
-                <option value="PURCHASE">Purchase</option>
-              </select>
+              <fieldset disabled={submitting}>
+                <legend className="mb-2 text-sm font-medium">Revised ticket type</legend>
+                <div className="flex flex-wrap gap-2">
+                  {(["COMPLIMENTARY", "PURCHASE"] as const).map((purpose) => (
+                    <label key={purpose} className="flex cursor-pointer items-center gap-2 rounded-md border px-4 py-2">
+                      <input type="radio" name="revision-ticket-type" value={purpose}
+                        checked={ticketType === purpose} onChange={() => setTicketType(purpose)} />
+                      {purpose === "PURCHASE" ? "Purchase" : "Complimentary"}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <p className="text-sm text-muted-foreground">Saving restarts approval. Stock and quota are checked when final approval is submitted.</p>
             </div>
           )}
@@ -143,7 +154,7 @@ export function ApprovalDecisionDialog({ step, action, open, onOpenChange, onDec
                     <Label htmlFor={`approved-${item.id}`}>{item.ticketCategory?.displayName ?? `Request item ${index + 1}`}</Label>
                     <p className="mt-1 text-xs text-muted-foreground">Requested {item.requestedQuantity} · Previously approved {item.approvedQuantity}</p>
                     {item.ticketCategory && availability[item.ticketCategory.id] && <p className="mt-1 text-xs text-muted-foreground">
-                      {availability[item.ticketCategory.id].remaining} of {availability[item.ticketCategory.id].capacity} available across this category
+                      Category stock before stand and quota checks: {availability[item.ticketCategory.id].complimentaryStock} Complimentary / {availability[item.ticketCategory.id].purchaseStock} Purchase
                     </p>}
                   </div>
                   <Input
