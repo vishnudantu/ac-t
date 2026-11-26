@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CheckCircle2, Layers3, Pencil, Plus, Shield } from "lucide-react"
+import { CheckCircle2, Layers3, Pencil, Plus, Shield, Trash2, AlertCircle } from "lucide-react"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,14 +17,18 @@ import { useSession } from "@/hooks/use-session"
 import { MetricCard } from "@/components/operations/metric-card"
 import { PageHeader } from "@/components/operations/page-header"
 import { useOperationData } from "@/components/operations/use-operation-data"
+import { useToast } from "@/hooks/use-toast"
 import type { Quota } from "@/components/operations/types"
 import { formatNumber } from "@/lib/utils"
 import { QuotaEditor } from "@/app/admin/quotas/quota-editor"
 
 const PAGE_SIZE = 20
 
-function QuotaPoolCard({ quota, onEdit }: { quota: Quota; onEdit?: (quota: Quota) => void }) {
+function QuotaPoolCard({ quota, onEdit, onDelete }: { quota: Quota; onEdit?: (quota: Quota) => void; onDelete?: (quota: Quota) => void }) {
   const remaining = Math.max(0, quota.totalAllocation - quota.consumedQuantity)
+  const hasAllocations = quota.quotaAllocations.length > 0
+  const hasConsumed = quota.quotaAllocations.some(a => a.consumedQuantity > 0)
+  const canDelete = onDelete && !hasAllocations && !hasConsumed
 
   return (
     <Card className="shadow-none">
@@ -38,8 +42,15 @@ function QuotaPoolCard({ quota, onEdit }: { quota: Quota; onEdit?: (quota: Quota
             {quota.isActive ? "Active" : "Inactive"}
           </Badge>
           {onEdit && <Button variant="ghost" size="icon" aria-label={`Edit quota ${quota.displayName}`} onClick={() => onEdit(quota)}><Pencil className="h-4 w-4" /></Button>}
+          {canDelete && <Button variant="ghost" size="icon" aria-label={`Delete quota ${quota.displayName}`} onClick={() => onDelete(quota)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
         </div>
       </CardHeader>
+      {hasConsumed && (
+        <div className="flex items-center gap-2 rounded-md bg-yellow-50 p-3 text-xs text-yellow-800">
+          <AlertCircle className="h-3 w-3" />
+          <span>Contains consumed allocations - reduce before deletion</span>
+        </div>
+      )}
       <CardContent className="space-y-4 p-4 pt-0">
         <dl className="grid grid-cols-3 gap-3 border-y py-3">
           <div><dt className="text-xs text-muted-foreground">Total allocation</dt><dd className="mt-1 text-lg font-bold tabular-nums">{formatNumber(quota.totalAllocation)}</dd></div>
@@ -82,15 +93,74 @@ function QuotaPoolCard({ quota, onEdit }: { quota: Quota; onEdit?: (quota: Quota
   )
 }
 
+function DeleteConfirmDialog({ quota, open, onClose, onConfirm }: {
+  quota: Quota | null
+  open: boolean
+  onClose: () => void
+  onConfirm: (quota: Quota) => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const hasAllocations = quota && quota.quotaAllocations.length > 0
+  const hasConsumed = quota && quota.quotaAllocations.some(a => a.consumedQuantity > 0)
+  const canDelete = quota && !hasAllocations && !hasConsumed
+
+  async function handleDelete() {
+    if (!quota) return
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/quotas/${encodeURIComponent(quota.id)}`, { method: "DELETE" })
+      const body = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(body.error || "Unable to delete quota")
+      onConfirm(quota)
+      onOpenChange(false)
+    } catch (cause: unknown) {
+      console.error("Delete failed:", cause)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete quota pool</DialogTitle>
+          <DialogDescription>
+            {hasAllocations
+              ? `Cannot delete "${quota?.displayName}" — it contains allocated tickets.`
+              : `Delete "${quota?.displayName}"?`}
+          </DialogDescription>
+        </DialogHeader>
+        {!hasAllocations && quota && (
+          <p className="mb-4 text-sm text-muted-foreground">
+            This action cannot be undone. Only SUPER_ADMIN users can delete quotas.
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+          {canDelete && quota && (
+            <Button variant="destructive" onClick={handleDelete} disabled={saving}>
+              {saving ? "Deleting…" : "Delete quota pool"}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export default function QuotasPage() {
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
   const { user } = useSession()
+  const { toast } = useToast()
   const [matchId, setMatchId] = useState("all")
   const [matches, setMatches] = useState<{ id: string; title: string }[]>([])
   const [editing, setEditing] = useState<Quota | null>(null)
+  const [deleting, setDeleting] = useState<Quota | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const canWrite = Boolean(user?.permissions.includes("quotas:write"))
+  const canDelete = Boolean(user?.roles?.includes("SUPER_ADMIN"))
   const { data, loading, error, retry } = useOperationData(
     (signal) => getQuotas(signal, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, matchId }),
     [page, matchId],
@@ -111,9 +181,19 @@ export default function QuotasPage() {
     setEditing(quota)
   }
 
+  function confirmDelete(quota: Quota) {
+    if (!canDelete) return
+    setDeleting(quota)
+  }
+
   function changeMatch(value: string) {
     setMatchId(value)
     setPage(1)
+  }
+
+  function handleDeleteComplete(quota: Quota) {
+    toast({ title: "Quota deleted", description: quota.displayName, variant: "destructive" })
+    retry()
   }
 
   const quotas = data?.quotas ?? []
@@ -176,7 +256,14 @@ export default function QuotasPage() {
               </Card>
             ) : (
               <div className="grid gap-4 xl:grid-cols-2">
-                {filteredQuotas.map((quota) => <QuotaPoolCard key={quota.id} quota={quota} onEdit={canWrite ? openEdit : undefined} />)}
+                {filteredQuotas.map((quota) => (
+                  <QuotaPoolCard
+                    key={quota.id}
+                    quota={quota}
+                    onEdit={canWrite ? openEdit : undefined}
+                    onDelete={canDelete ? confirmDelete : undefined}
+                  />
+                ))}
               </div>
             )}
           </DataState>
@@ -189,6 +276,7 @@ export default function QuotasPage() {
       </div>
       <QuotaEditor open={createOpen} onOpenChange={setCreateOpen} quota={null} matches={matches} onSaved={retry} />
       <QuotaEditor open={Boolean(editing)} onOpenChange={(open) => { if (!open) setEditing(null) }} quota={editing} matches={matches} onSaved={retry} />
+      <DeleteConfirmDialog quota={deleting} open={Boolean(deleting)} onClose={() => setDeleting(null)} onConfirm={handleDeleteComplete} />
     </MainLayout>
   )
 }
