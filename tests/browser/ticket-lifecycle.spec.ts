@@ -12,6 +12,7 @@ test.beforeAll(async () => {
   const permissions = [
     'matches:read', 'requests:read', 'requests:write', 'approvals:read', 'approvals:decide',
     'allocations:read', 'allocations:confirm', 'distribution:read', 'distribution:issue',
+    'inventory:read', 'quotas:read', 'reports:read',
   ]
   const role = await prisma.role.upsert({ where: { name: 'BROWSER_TESTER' }, update: {}, create: {
     name: 'BROWSER_TESTER', displayName: 'Browser tester',
@@ -197,4 +198,20 @@ test('revises a complimentary request to purchase before approving 25 eligible t
   await expectBalances(fixture, 25, 0, 0, 0)
   await approve(page, revised)
   await expectBalances(fixture, 0, 25, 0, 0)
+  const match = encodeURIComponent(fixture.match.id)
+  const [inventory, quotas, reports] = await Promise.all([
+    page.request.get(`/api/inventory?matchId=${match}`),
+    page.request.get(`/api/quotas?matchId=${match}`),
+    page.request.get(`/api/reports?matchId=${match}`),
+  ])
+  for (const response of [inventory, quotas, reports]) await expect(response).toBeOK()
+  expect((await inventory.json()).summary).toMatchObject({ total: 25, available: 0, allocated: 25, issued: 0 })
+  expect(await quotas.json()).toMatchObject({
+    totals: { allocation: 10, consumed: 0 },
+    inventoryByCategory: [{ categoryId: fixture.category.id, purchase: 25, complimentary: 0, unclassified: 0 }],
+  })
+  expect(await reports.json()).toMatchObject({
+    summary: { requested: 25, approved: 25, allocated: 25, issued: 0, available: 0, quotaConsumed: 0 },
+    categories: [{ id: fixture.category.id, approved: 25, allocated: 25, issued: 0, available: 0 }],
+  })
 })
