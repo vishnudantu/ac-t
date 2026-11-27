@@ -63,3 +63,12 @@ it('keeps inventory classification behind the inventory read permission', async 
   expect(await response.json()).toMatchObject({ inventoryByCategory: null })
   expect(tx.inventoryPool.findMany).not.toHaveBeenCalled()
 })
+it('counts only the undeclared remainder of a partially classified Mixed pool', async () => {
+  jest.mocked(getSession).mockResolvedValue(session)
+  const tx = setup()
+  tx.inventoryPool.findMany.mockResolvedValue([{ ...category, ticketPurpose: 'MIXED', totalQuantity: 1706,
+    complimentaryQuantity: 500, purchaseQuantity: 1187, availableQuantity: 1706, allocatedQuantity: 0, issuedQuantity: 0 }])
+  expect(await (await GET(request())).json()).toMatchObject({ inventoryByCategory: [{
+    complimentary: 500, purchase: 1187, unclassified: 19, complimentaryAvailable: 500, purchaseAvailable: 1187,
+  }] })
+})

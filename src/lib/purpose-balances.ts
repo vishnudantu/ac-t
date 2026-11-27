@@ -1,3 +1,5 @@
+import { inventoryPurposeTotals } from './inventory-purpose'
+
 ﻿export const purposeAllocations = {
   where: { releasedAt: null, status: { in: ['RESERVED', 'CONFIRMED', 'ISSUED'] } },
   select: {
@@ -45,12 +47,13 @@ export function purposeBalances(p: PoolBalanceInput) {
     return { complimentaryAvailable: 0, purchaseAvailable: 0, complimentaryIssued: 0, purchaseIssued: 0 }
   }
   // A historical movement without an attributable purpose must not fund a new approval.
-  if (p.complimentaryQuantity + p.purchaseQuantity !== p.totalQuantity ||
+  const stock = inventoryPurposeTotals(p)
+  if (
       complimentary + purchase !== p.allocatedQuantity || complimentary + purchase + p.availableQuantity !== p.totalQuantity ||
       balance.complimentaryIssued + balance.purchaseIssued !== p.issuedQuantity ||
-      complimentary > p.complimentaryQuantity || purchase > p.purchaseQuantity) return balance
-  balance.complimentaryAvailable = p.complimentaryQuantity - complimentary
-  balance.purchaseAvailable = p.purchaseQuantity - purchase
+      complimentary > stock.complimentary || purchase > stock.purchase) return balance
+  balance.complimentaryAvailable = stock.complimentary - complimentary
+  balance.purchaseAvailable = stock.purchase - purchase
   return balance
 }
 

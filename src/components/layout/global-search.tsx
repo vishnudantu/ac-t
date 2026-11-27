@@ -66,7 +66,7 @@ export function GlobalSearch() {
       <Search className="h-4 w-4" /><span className="hidden md:inline">Search…</span><kbd className="hidden rounded border px-1 text-[10px] font-normal md:inline">⌘K</kbd>
     </Button>
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="top-[20%] max-w-lg p-0">
+      <DialogContent className="max-w-lg p-0">
         <div className="border-b p-3">
           <Input autoFocus placeholder="Search requests, requesters, matches…" value={query} onChange={(event) => setQuery(event.target.value)} className="border-0 focus-visible:ring-0" />
         </div>

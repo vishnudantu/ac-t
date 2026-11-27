@@ -1,5 +1,6 @@
 "use client"
 
+import { inventoryPurposeTotals } from "@/lib/inventory-purpose"
 import { useState } from "react"
 import { Archive, ArrowLeft, Boxes, CheckCircle2, Package, Plus, Ticket, Trash2, XCircle, Pencil } from "lucide-react"
 import { MainLayout } from "@/components/layout/main-layout"
@@ -21,6 +22,12 @@ import { useOperationData } from "@/components/operations/use-operation-data"
 import { formatCurrency, formatNumber } from "@/lib/utils"
 
 const PAGE_SIZE = 25
+
+function mixedStockLabel(pool: { totalQuantity: number; complimentaryQuantity: number; purchaseQuantity: number }) {
+  const stock = inventoryPurposeTotals({ ...pool, ticketPurpose: "MIXED" })
+  const classified = `${formatNumber(stock.complimentary)} Complimentary / ${formatNumber(stock.purchase)} Purchase`
+  return stock.unclassified ? `${classified} / ${formatNumber(stock.unclassified)} unclassified` : classified
+}
 
 export default function InventoryPage() {
   const [search, setSearch] = useState("")
@@ -353,7 +360,7 @@ export default function InventoryPage() {
                 <div className="space-y-3 p-3 md:hidden">{filteredInventory.map((item) => <div key={item.id} className="rounded-lg border bg-card p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{item.standName}</p><p className="text-xs text-muted-foreground">{[item.blockName && `Block ${item.blockName}`, item.gateName].filter(Boolean).join(" · ") || "No location detail"}</p></div><Badge variant="secondary">{item.ticketCategory.displayName}</Badge></div>
                   <p className="mt-1 text-xs text-muted-foreground">{item.match.title}</p>
-                  <div className="mt-2 flex gap-1"><Badge variant={item.ticketPurpose === "COMPLIMENTARY" ? "secondary" : "default"}>{item.ticketPurpose === "MIXED" ? `Mixed stock ${item.complimentaryQuantity}/${item.purchaseQuantity}` : item.ticketPurpose === "COMPLIMENTARY" ? "Complimentary" : "Purchase"}</Badge>{item.ticketPurpose === "MIXED" && item.balances && <p className="text-xs">Complimentary / Purchase: available {item.balances.complimentaryAvailable} / {item.balances.purchaseAvailable}, issued {item.balances.complimentaryIssued} / {item.balances.purchaseIssued}</p>}{item.pricingUnit === "PER_SUITE" && <Badge variant="outline">Per suite</Badge>}</div>
+                  <div className="mt-2 flex gap-1"><Badge variant={item.ticketPurpose === "COMPLIMENTARY" ? "secondary" : "default"}>{item.ticketPurpose === "MIXED" ? mixedStockLabel(item) : item.ticketPurpose === "COMPLIMENTARY" ? "Complimentary" : "Purchase"}</Badge>{item.ticketPurpose === "MIXED" && item.balances && <p className="text-xs">Complimentary / Purchase: available {item.balances.complimentaryAvailable} / {item.balances.purchaseAvailable}, issued {item.balances.complimentaryIssued} / {item.balances.purchaseIssued}</p>}{item.pricingUnit === "PER_SUITE" && <Badge variant="outline">Per suite</Badge>}</div>
                   <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
                     <div><dt className="text-xs text-muted-foreground">Total</dt><dd className="font-bold tabular-nums">{formatNumber(item.totalQuantity)}</dd></div>
                     <div><dt className="text-xs text-muted-foreground">Available</dt><dd className="font-bold tabular-nums text-green-700 dark:text-green-400">{formatNumber(item.availableQuantity)}</dd></div>
@@ -393,7 +400,7 @@ export default function InventoryPage() {
                             {[item.blockName && `Block ${item.blockName}`, item.gateName].filter(Boolean).join(" · ") || "Location details not specified"}
                           </div>
                         </TableCell>
-                        <TableCell><Badge variant="outline">{item.ticketFormat}</Badge><div className="mt-1"><Badge variant={item.ticketPurpose === "COMPLIMENTARY" ? "secondary" : "default"}>{item.ticketPurpose === "MIXED" ? `Mixed stock ${item.complimentaryQuantity}/${item.purchaseQuantity}` : item.ticketPurpose === "COMPLIMENTARY" ? "Complimentary" : "Purchase"}</Badge></div>{item.ticketPurpose === "MIXED" && item.balances && <p className="text-xs">Complimentary / Purchase: available {item.balances.complimentaryAvailable} / {item.balances.purchaseAvailable}, issued {item.balances.complimentaryIssued} / {item.balances.purchaseIssued}</p>}{item.pricingUnit === "PER_SUITE" && <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">Per suite</p>}</TableCell>
+                        <TableCell><Badge variant="outline">{item.ticketFormat}</Badge><div className="mt-1"><Badge variant={item.ticketPurpose === "COMPLIMENTARY" ? "secondary" : "default"}>{item.ticketPurpose === "MIXED" ? mixedStockLabel(item) : item.ticketPurpose === "COMPLIMENTARY" ? "Complimentary" : "Purchase"}</Badge></div>{item.ticketPurpose === "MIXED" && item.balances && <p className="text-xs">Complimentary / Purchase: available {item.balances.complimentaryAvailable} / {item.balances.purchaseAvailable}, issued {item.balances.complimentaryIssued} / {item.balances.purchaseIssued}</p>}{item.pricingUnit === "PER_SUITE" && <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">Per suite</p>}</TableCell>
                         <TableCell className="text-right tabular-nums">{item.faceValue === null ? "—" : formatCurrency(item.faceValue)}</TableCell>
                         <TableCell className="text-right font-medium tabular-nums">{formatNumber(item.totalQuantity)}</TableCell>
                         <TableCell className="text-right font-medium tabular-nums text-green-700 dark:text-green-400">{formatNumber(item.availableQuantity)}</TableCell>
