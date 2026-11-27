@@ -14,8 +14,8 @@ export function inventoryPurposeTotals(pool: PoolPurpose) {
     return { complimentary: 0, purchase: totalQuantity, unclassified: 0 }
   }
   if (ticketPurpose === 'MIXED' && complimentaryQuantity >= 0 && purchaseQuantity >= 0
-    && complimentaryQuantity + purchaseQuantity === totalQuantity) {
-    return { complimentary: complimentaryQuantity, purchase: purchaseQuantity, unclassified: 0 }
+    && complimentaryQuantity + purchaseQuantity <= totalQuantity) {
+    return { complimentary: complimentaryQuantity, purchase: purchaseQuantity, unclassified: totalQuantity - complimentaryQuantity - purchaseQuantity }
   }
   return { complimentary: 0, purchase: 0, unclassified: totalQuantity }
 }

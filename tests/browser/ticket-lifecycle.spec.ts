@@ -29,7 +29,14 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => { await prisma.$disconnect() })
 
-test.beforeEach(async ({ page }) => {
+const shortLaptopTest = 'Edit inventory pool stays usable on a short laptop screen'
+test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.title === shortLaptopTest) {
+    const role = await prisma.role.findUniqueOrThrow({ where: { name: 'BROWSER_TESTER' } })
+    await prisma.role.update({ where: { id: role.id }, data: { permissions: { create: {
+      permission: { create: { key: 'inventory:adjust', displayName: 'Adjust inventory', category: 'Browser tests' } },
+    } } } })
+  }
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password', { exact: true }).fill(password)
@@ -378,4 +385,44 @@ test('GOD Mode checkbox grants only the selected user full and partial approval 
   } finally {
     await context.close()
   }
+})
+
+test('C Stand shows its partial Mixed split across Inventory, Quotas and Reports', async ({ page }) => {
+  const fixture = await createFixture(1706)
+  await prisma.ticketCategory.update({ where: { id: fixture.category.id }, data: { displayName: 'C Stand' } })
+  await prisma.inventoryPool.update({ where: { id: fixture.pool.id }, data: {
+    standName: 'C Stand', ticketPurpose: 'MIXED', complimentaryQuantity: 500, purchaseQuantity: 1187,
+  } })
+  await page.goto('/inventory')
+  const pool = page.getByRole('row').filter({ hasText: fixture.match.title })
+  await expect(pool).toContainText('500 Complimentary / 1,187 Purchase / 19 unclassified')
+  await page.goto('/quotas')
+  await page.getByRole('combobox', { name: 'Match', exact: true }).selectOption(fixture.match.id)
+  await expect(page.getByRole('row').filter({ hasText: fixture.match.title }).getByRole('cell')).toHaveText(
+    [fixture.match.title, 'C Stand', '500', '1,187', '19', '500 / 1187', '0 / 0'])
+  await page.goto('/reports')
+  await page.getByRole('combobox', { name: 'Match', exact: true }).selectOption(fixture.match.id)
+  await page.getByRole('combobox', { name: 'Report', exact: true }).selectOption('pools')
+  const cells = page.getByRole('row').filter({ hasText: fixture.match.title }).getByRole('cell')
+  await expect(cells.nth(10)).toHaveText('500')
+  await expect(cells.nth(11)).toHaveText('1187')
+  await expect(cells.nth(12)).toHaveText('19')
+})
+
+test(shortLaptopTest, async ({ page }) => {
+  const fixture = await createFixture(28)
+  await prisma.inventoryPool.update({ where: { id: fixture.pool.id }, data: { standName: 'Suite-18' } })
+  await page.setViewportSize({ width: 1280, height: 600 })
+  await page.goto('/inventory')
+  await page.getByRole('button', { name: 'Edit inventory Suite-18', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Edit inventory pool' })
+  await expect(dialog.getByRole('heading', { name: 'Edit inventory pool' })).toBeInViewport({ ratio: 1 })
+  await expect(dialog).toBeInViewport({ ratio: 1 })
+  await dialog.getByLabel('Notes').fill('Short laptop viewport verified')
+  const save = dialog.getByRole('button', { name: 'Save changes' })
+  await save.scrollIntoViewIfNeeded()
+  await expect(save).toBeInViewport({ ratio: 1 })
+  await save.click()
+  await expect(dialog).toBeHidden()
+  expect((await prisma.inventoryPool.findUniqueOrThrow({ where: { id: fixture.pool.id } })).notes).toBe('Short laptop viewport verified')
 })
