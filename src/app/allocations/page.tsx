@@ -33,7 +33,7 @@ const statusOptions = [
 
 export default function AllocationsPage() {
   const { user } = useSession()
-  const [cancelling, setCancelling] = useState<{ id: string; number: string } | null>(null)
+  const [cancelling, setCancelling] = useState<{ id: string; requester: string; requestNumber: string } | null>(null)
   const [reason, setReason] = useState("")
   const [cancelError, setCancelError] = useState<string | null>(null)
   const [cancelPending, setCancelPending] = useState(false)
@@ -103,7 +103,7 @@ export default function AllocationsPage() {
         <Card className="shadow-none">
           <CardHeader className="p-4 pb-3">
             <CardTitle className="text-lg">Allocation records</CardTitle>
-            <CardDescription>{data ? `${formatNumber(data.total)} allocations` : "Live allocation records"}</CardDescription>
+            <CardDescription>{data ? `${formatNumber(data.total)} allocation${data.total === 1 ? "" : "s"}` : "Live allocation records"}</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <DataState loading={loading} error={error} onRetry={retry} skeleton={<TableSkeleton rows={5} />}>
@@ -129,10 +129,10 @@ export default function AllocationsPage() {
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <h3 id={`allocation-${allocation.id}`} className="font-mono text-sm font-semibold">{optionalText(allocation.allocationNumber) ?? "Allocation"}</h3>
+                              <h3 id={`allocation-${allocation.id}`} className="text-lg font-semibold">{allocation.request.requester.fullName}</h3>
                               <Badge className={getStatusColor(optionalText(allocation.status) ?? "PENDING")}>{formatStatus(optionalText(allocation.status) ?? "PENDING")}</Badge>
                             </div>
-                            <p className="mt-1.5 text-sm">{allocation.request.requestNumber} · {allocation.request.requester.fullName}</p>
+                            <p className="mt-1.5 text-sm">{allocation.request.requestNumber}</p>
                             <p className="mt-1 text-xs text-muted-foreground">{allocation.match.title} · Officer: {allocation.officer.fullName}</p>
                             <p className="mt-1 text-xs text-muted-foreground">Created {formatDate(allocation.createdAt)}</p>
                           </div>
@@ -146,7 +146,7 @@ export default function AllocationsPage() {
                             <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => {
                               setReason("")
                               setCancelError(null)
-                              setCancelling({ id: allocation.id, number: allocation.allocationNumber })
+                              setCancelling({ id: allocation.id, requester: allocation.request.requester.fullName, requestNumber: allocation.request.requestNumber })
                             }}>Cancel allocation</Button>
                           )}
                         {allocation.items.length === 0 ? (
@@ -197,7 +197,7 @@ export default function AllocationsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Cancel allocation</DialogTitle>
-            <DialogDescription>Cancel {cancelling?.number} and release its tickets and quota. This also cancels the request.</DialogDescription>
+            <DialogDescription>Cancel the allocation for {cancelling?.requester} ({cancelling?.requestNumber}) and release its tickets and quota. This also cancels the request.</DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={cancelAllocation}>
             <div className="space-y-2">

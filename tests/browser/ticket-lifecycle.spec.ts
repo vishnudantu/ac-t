@@ -180,8 +180,14 @@ test('cancelling an unissued allocation releases inventory and quota', async ({ 
   await expectBalances(fixture, 5, 5, 0, 5)
   await page.goto('/allocations')
   const article = page.getByRole('article').filter({ hasText: request.requestNumber })
+  await expect(article.getByRole('heading').first()).toHaveText(fixture.requester.fullName)
+  await expect(article).not.toContainText('AUTO-')
   await article.getByRole('button', { name: 'Cancel allocation' }).click()
   const dialog = page.getByRole('dialog', { name: 'Cancel allocation' })
+  await expect(dialog).toHaveAccessibleDescription(
+    `Cancel the allocation for ${fixture.requester.fullName} (${request.requestNumber}) and release its tickets and quota. This also cancels the request.`,
+  )
+  await expect(dialog).not.toContainText('AUTO-')
   await dialog.getByLabel('Reason').fill('Synthetic cancellation')
   await dialog.getByRole('button', { name: 'Cancel allocation' }).click()
   await expect(dialog).toBeHidden()
