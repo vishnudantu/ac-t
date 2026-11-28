@@ -12,7 +12,7 @@ test.beforeAll(async () => {
   const permissions = [
     'matches:read', 'requests:read', 'requests:write', 'approvals:read', 'approvals:decide',
     'allocations:read', 'allocations:confirm', 'distribution:read', 'distribution:issue',
-    'inventory:read', 'quotas:read', 'reports:read', 'users:read', 'users:write', 'users:assign_roles',
+    'inventory:read', 'quotas:read', 'quotas:write', 'reports:read', 'users:read', 'users:write', 'users:assign_roles',
   ]
   const role = await prisma.role.upsert({ where: { name: 'BROWSER_TESTER' }, update: {}, create: {
     name: 'BROWSER_TESTER', displayName: 'Browser tester',
@@ -431,4 +431,35 @@ test(shortLaptopTest, async ({ page }) => {
   await save.click()
   await expect(dialog).toBeHidden()
   expect((await prisma.inventoryPool.findUniqueOrThrow({ where: { id: fixture.pool.id } })).notes).toBe('Short laptop viewport verified')
+})
+
+test('ACA Admin Obligations saves a valid edit and explains an over-capacity edit', async ({ page }) => {
+  const { match, category, quota } = await createFixture(40)
+  await prisma.quotaPool.update({ where: { id: quota.id }, data: { displayName: 'ACA Admin Obligations' } })
+  await prisma.ticketCategory.update({ where: { id: category.id }, data: { displayName: 'A Stand' } })
+  await prisma.quotaPool.create({ data: {
+    matchId: match.id, name: 'other', displayName: 'Other pool', totalAllocation: 6,
+    quotaAllocations: { create: { ticketCategoryId: category.id, allocatedQuantity: 6 } },
+  } })
+  await page.goto('/quotas')
+  const edit = page.getByRole('button', { name: 'Edit quota ACA Admin Obligations', exact: true })
+  const dialog = page.getByRole('dialog', { name: 'Edit quota pool' })
+  const quantity = dialog.getByRole('spinbutton', { name: 'Quantity 1' })
+  const save = dialog.getByRole('button', { name: 'Save changes' })
+  await edit.click()
+  await expect(dialog.getByRole('combobox', { name: 'Category 1' })).toHaveValue(category.id)
+  await quantity.fill('34')
+  await save.click()
+  await expect(dialog).toBeHidden()
+  await page.reload()
+  await edit.click()
+  await expect(quantity).toHaveValue('34')
+  await expect(dialog.getByRole('combobox', { name: 'Category 1' })).toHaveValue(category.id)
+  await quantity.fill('35')
+  await save.click()
+  await expect(dialog.getByRole('alert')).toHaveText('Allocated quantity for A Stand would exceed its inventory. Remaining capacity: 34')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.reload()
+  await edit.click()
+  await expect(quantity).toHaveValue('34')
 })
