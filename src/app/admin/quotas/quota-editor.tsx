@@ -147,7 +147,7 @@ export function QuotaEditor({ open, onOpenChange, quota, matches, onSaved }: Quo
           </div>)}
         </div>
         {quota && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} disabled={saving} />Active (available for new requests and allocations)</label>}
-        <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving…" : quota ? "Save changes" : "Create quota"}</Button></DialogFooter>
+        <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button><Button type="submit" disabled={saving || loading}>{saving ? "Saving…" : quota ? "Save changes" : "Create quota"}</Button></DialogFooter>
       </form>
     </DialogContent>
   </Dialog>

@@ -125,6 +125,6 @@ describe('quota pool editing', () => {
     expect((await patchQuota(request({ displayName: 'New' }), context('quota-1'))).status).toBe(403)
     getSessionMock.mockResolvedValue(superAdmin)
     prismaMock.ticketCategory.findMany = jest.fn().mockResolvedValue([])
-    expect((await patchQuota(request({ allocations: [{ ticketCategoryId: 'cat-1', allocatedQuantity: 10 }] }), context('quota-1'))).status).toBe(500)
+    expect((await patchQuota(request({ allocations: [{ ticketCategoryId: 'cat-1', allocatedQuantity: 10 }] }), context('quota-1'))).status).toBe(400)
   })
 })

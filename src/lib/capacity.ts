@@ -1,5 +1,7 @@
 import type { Prisma } from '@prisma/client'
 
+import { ApiError } from './api'
+
 type Transaction = Prisma.TransactionClient
 
 /**
@@ -14,6 +16,7 @@ export async function assertQuotaCapacity(
   ticketCategoryId: string,
   additionalQuantity: number,
   excludeQuotaId?: string,
+  categoryName = 'this category',
 ): Promise<void> {
   const [inventory, allocations] = await Promise.all([
     tx.inventoryPool.aggregate({ where: { matchId, ticketCategoryId }, _sum: { totalQuantity: true } }),
@@ -28,6 +31,6 @@ export async function assertQuotaCapacity(
   const capacity = inventory._sum.totalQuantity ?? 0
   const committed = allocations._sum.allocatedQuantity ?? 0
   if (committed + additionalQuantity > capacity) {
-    throw new Error(`Allocated quantity for this category would exceed its inventory. Remaining capacity: ${Math.max(0, capacity - committed)}`)
+    throw new ApiError(409, `Allocated quantity for ${categoryName} would exceed its inventory. Remaining capacity: ${Math.max(0, capacity - committed)}`)
   }
 }
